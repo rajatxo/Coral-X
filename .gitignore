@@ -1,0 +1,9 @@
+skills/
+node_modules/
+build/
+local.properties
+.gradle/
+app/build/
+gradle/
+gradlew
+gradlew.bat

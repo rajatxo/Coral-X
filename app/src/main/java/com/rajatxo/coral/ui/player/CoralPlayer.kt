@@ -1,0 +1,1192 @@
+package com.rajatxo.coral.ui.player
+
+import android.content.Context
+import android.media.AudioManager
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.rajatxo.coral.audio.CrossfadeVisualState
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import coil3.compose.AsyncImage
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorControls
+import com.kyant.backdrop.effects.vibrancy
+import com.rajatxo.coral.data.prefs.SoundHapticsManager
+import com.rajatxo.coral.data.store.PlaylistStore
+import com.rajatxo.coral.ui.icons.CoralIcons
+import com.rajatxo.coral.ui.lyrics.LyricsSheet
+import com.rajatxo.coral.ui.theme.CalSansFamily
+import com.rajatxo.coral.util.CoralPalette
+import com.rajatxo.coral.util.extractPalette
+import kotlinx.coroutines.delay
+
+/**
+ * Immersive player — BitChord-style.
+ *
+ * Layout (top → bottom):
+ *   1.  Opaque black base (nothing shows through).
+ *   2.  Vertical gradient using the album art's dominant colors
+ *       (extracted via Palette). NOT the album art itself — just its colors.
+ *   3.  Soft dark overlay at the bottom for text legibility.
+ *   4.  Top header: chevron-down · NOW PLAYING · more-vertical.
+ *   5.  Square album art — full width, 10dp rounded corners, big drop shadow.
+ *   6.  Song title  +  heart  +  queue  (row).
+ *   7.  Artist name.
+ *   8.  Lyrics strip (♪ … ›) — tap to open full lyrics.
+ *   9.  Seek bar with times either side.
+ *  10.  Transport: prev · play/pause · next.
+ *  11.  Volume slider: speaker-low · track · speaker-high.
+ *  12.  Bottom utility: shuffle · repeat-1 · repeat-∞ · queue.
+ */
+@Composable
+fun CoralPlayer(
+    mediaController: MediaController?,
+    songId: Long?,
+    title: String,
+    artist: String,
+    albumName: String?,
+    albumArtUri: Uri?,
+    isPlaying: Boolean,
+    onPlayPauseClick: () -> Unit,
+    onNextClick: () -> Unit,
+    onPrevClick: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onDismiss: () -> Unit,
+    onAddToPlaylist: (Long) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+
+    // Subtle text shadow — makes white text readable on bright backgrounds
+    val textShadow = Shadow(
+        color = Color.Black.copy(alpha = 0.6f),
+        offset = Offset(1f, 1f),
+        blurRadius = 3f
+    )
+
+    // Sound + haptics for the glass capsule swipe (same as TabCapsule nav bar)
+    val soundPool = remember {
+        android.media.SoundPool.Builder()
+            .setMaxStreams(2)
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    }
+    var soundLoaded by remember { mutableStateOf(false) }
+    val tickSoundId = remember {
+        soundPool.setOnLoadCompleteListener { _, _, status ->
+            if (status == 0) soundLoaded = true
+        }
+        soundPool.load(context, com.rajatxo.coral.R.raw.wheel_tick, 1)
+    }
+
+    fun tickHaptic() {
+        val hapticsOn = SoundHapticsManager.hapticsEnabled.value
+        val soundsOn = SoundHapticsManager.soundsEnabled.value
+        val volume = SoundHapticsManager.soundVolume.value / 100f
+        if (hapticsOn) {
+            try {
+                view.performHapticFeedback(
+                    HapticFeedbackConstants.VIRTUAL_KEY,
+                    HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
+                    HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+                )
+            } catch (_: Exception) { }
+        }
+        if (soundsOn && soundLoaded) {
+            try {
+                soundPool.play(tickSoundId, volume, volume, 1, 0, 1f)
+            } catch (_: Exception) { }
+        }
+    }
+
+    // Liquid glass backdrop — captures the background so the glass capsule
+    // can sample + blur it in real-time (same API as the nav bar TabCapsule).
+    val graphicsLayer = rememberGraphicsLayer()
+    val glassBackdrop = rememberLayerBackdrop(graphicsLayer = graphicsLayer) {
+        drawContent()
+    }
+
+    // Drag state for the glass capsule swipe L/R
+    var dragAccumulator by remember { mutableFloatStateOf(0f) }
+    val dragThreshold = 60f
+
+    // ─── Palette (extracted from album art) ───────────────────────────
+    // Preload the album art via Coil FIRST, then extract palette. This
+    // ensures the image is in Coil's cache when AsyncImage renders it,
+    // eliminating the "solid color flash" on first-time song load.
+    var palette by remember { mutableStateOf(CoralPalette.Default) }
+    LaunchedEffect(albumArtUri) {
+        if (albumArtUri != null) {
+            try {
+                coil3.ImageLoader(context).execute(
+                    coil3.request.ImageRequest.Builder(context)
+                        .data(albumArtUri)
+                        .build()
+                )
+            } catch (_: Exception) { }
+            extractPalette(context, albumArtUri)?.let { palette = it }
+        }
+    }
+
+    // Smooth crossfade when colors change on song switch (no grey flash).
+    val animatedTopColor    by animateColorAsState(palette.primary,   tween(600), label = "top")
+    val animatedMidColor   by animateColorAsState(palette.secondary,  tween(600), label = "mid")
+    val animatedBottomColor by animateColorAsState(palette.tertiary,  tween(600), label = "bottom")
+    val animatedAccentColor by animateColorAsState(palette.accent,    tween(600), label = "accent")
+
+    // Visual crossfade state (broadcast by SimpleCrossfadeController)
+    val xfActive by CrossfadeVisualState.isActive.collectAsState()
+    val xfProgress by CrossfadeVisualState.progress.collectAsState()
+    val xfIncomingArt by CrossfadeVisualState.incomingArtUri.collectAsState()
+    // Outgoing alpha: 1 normally, fades to 0 during crossfade, STAYS 0
+    // during the hold period (prevents old song cover from popping back
+    // up after the blend ends but before albumArtUri catches up).
+    var holdAfterEnd by remember { mutableStateOf(false) }
+    LaunchedEffect(xfActive) {
+        if (!xfActive) {
+            holdAfterEnd = true
+            delay(600L)
+            holdAfterEnd = false
+        } else {
+            holdAfterEnd = false
+        }
+    }
+    val outAlpha = when {
+        xfActive -> kotlin.math.cos(xfProgress * kotlin.math.PI / 2).toFloat().coerceIn(0f, 1f)
+        holdAfterEnd -> 0f  // hide outgoing during hold so old art doesn't pop
+        else -> 1f
+    }
+    val showIncoming = xfIncomingArt != null && (xfActive || holdAfterEnd)
+    val inAlpha = when {
+        xfActive -> kotlin.math.sin(xfProgress * kotlin.math.PI / 2).toFloat().coerceIn(0f, 1f)
+        holdAfterEnd -> 1f  // keep incoming at full during hold
+        else -> 0f
+    }
+
+    // Saturation boost for the blurred backgrounds — makes the whole
+    // player feel more vivid and the crossfade transition more saturated
+    // (alpha-blending two images can look muddy; this keeps colors rich).
+    val bgSatFilter = remember {
+        val s = 1.45f
+        val r = 0.3086f; val g = 0.6094f; val b = 0.0820f
+        ColorFilter.colorMatrix(ColorMatrix(floatArrayOf(
+            r + (1 - r) * s, g * (1 - s), b * (1 - s), 0f, 0f,
+            r * (1 - s), g + (1 - g) * s, b * (1 - s), 0f, 0f,
+            r * (1 - s), g * (1 - s), b + (1 - b) * s, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        )))
+    }
+
+    // ─── Playback position polling ────────────────────────────────────
+    var currentPositionMs by remember { mutableStateOf(0L) }
+    var durationMs by remember { mutableStateOf(0L) }
+    LaunchedEffect(mediaController, isPlaying) {
+        while (true) {
+            try {
+                mediaController?.let {
+                    currentPositionMs = it.currentPosition.coerceAtLeast(0L)
+                    durationMs = it.duration.coerceAtLeast(0L)
+                }
+            } catch (_: Exception) { }
+            delay(if (isPlaying) 200L else 1000L)
+        }
+    }
+
+    // ─── Favorites + lyrics sheet + more menu ────────────────────────
+    val favorites by PlaylistStore.favorites.collectAsState()
+    val isFavorite = songId != null && songId in favorites.songIds
+    var showLyrics by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showHeartPop by remember { mutableStateOf(false) }
+    LaunchedEffect(showHeartPop) {
+        if (showHeartPop) { delay(800); showHeartPop = false }
+    }
+
+    // ─── Seek bar state (buttery smooth, no thumb, thickens on drag) ──
+    var isDragging by remember { mutableStateOf(false) }
+    val trackHeight by animateDpAsState(
+        targetValue = if (isDragging) 12.dp else 5.dp,
+        animationSpec = tween(200),
+        label = "trackHeight"
+    )
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    val progress = if (durationMs > 0)
+        (currentPositionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    else 0f
+    val displayProgress = dragFraction ?: progress
+
+    // ─── Shuffle + repeat state (read from MediaController) ──────────
+    var shuffleEnabled by remember { mutableStateOf(false) }
+    var repeatMode by remember { mutableStateOf(Player.REPEAT_MODE_ALL) }
+    LaunchedEffect(mediaController) {
+        mediaController?.let {
+            shuffleEnabled = it.shuffleModeEnabled
+            repeatMode = it.repeatMode
+        }
+    }
+
+    // ─── System volume (so the volume slider reflects hardware keys) ─
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
+    var volume by remember {
+        mutableFloatStateOf(
+            if (maxVolume > 0) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume
+            else 0f
+        )
+    }
+    DisposableEffect(Unit) {
+        val observer = object : android.database.ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                volume = if (maxVolume > 0)
+                    audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maxVolume
+                else 0f
+            }
+        }
+        context.contentResolver.registerContentObserver(
+            Settings.System.getUriFor("volume_music_speaker") ?: Settings.System.CONTENT_URI,
+            true,
+            observer
+        )
+        onDispose { context.contentResolver.unregisterContentObserver(observer) }
+    }
+
+    // ─── Root Box: 100% blurred album cover bg + sharp art moved down ───
+    // Layout:
+    //   (1) BLURRED album cover (100% blur = 96dp radius) fills entire
+    //       screen as the background. RenderEffect on Android 12+.
+    //   (2) SHARP album art in a SQUARE container (aspectRatio 1f)
+    //       anchored TopCenter + offset 24dp down (creates a gap at
+    //       the top where the status bar sits on the blurred bg, not on
+    //       the sharp art). Has alpha masks at BOTH top (64dp fade) AND
+    //       bottom (140dp fade) using graphicsLayer + Offscreen +
+    //       drawWithContent + DstIn. Result: sharp in the middle, fading
+    //       to transparent at both edges — smoothly revealing the blurred
+    //       bg above (status bar area) and below (controls area).
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(animatedBottomColor)) {
+        val center = maxHeight / 2
+
+        // Background layer — wrapped with layerBackdrop so the glass capsule
+        // can sample + blur the album cover behind it (liquid glass effect).
+        Box(modifier = Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
+
+        // (1) Blurred album cover — fills entire screen as the background.
+        //     96dp blur radius = ~100% blur (very heavy, image becomes a
+        //     smooth color wash with subtle variations). Modifier.blur
+        //     uses RenderEffect on Android 12+ (hardware-accelerated).
+        // Outgoing blurred bg — fades out during visual crossfade.
+        // 96dp blur = heavy wash. Saturation filter keeps colors vivid.
+        if (albumArtUri != null) {
+            AsyncImage(
+                model = albumArtUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = bgSatFilter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(96.dp)
+                    .graphicsLayer { alpha = outAlpha }
+            )
+        }
+
+        // MOVED: medium-blur bridge + black gradient are now inside the
+        // visual crossfade section (below) so they also crossfade.
+        // During normal playback (no crossfade), they render at outAlpha=1.
+        // During crossfade, outgoing versions fade out + incoming versions
+        // fade in — no snap when the blend ends.
+
+        // (2) Sharp album art — SQUARE container at top, moved down 24dp
+        //     (so the status bar sits on the blurred bg, not on the art).
+        //     Has alpha masks at BOTH top (64dp) and bottom (140dp) that
+        //     fade opaque → transparent using BlendMode.DstIn. Result:
+        //     sharp in the middle, fading to transparent at both edges —
+        //     smoothly revealing the blurred bg above (status bar area)
+        //     and below (controls area).
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .align(Alignment.TopCenter)
+                .offset(y = 24.dp)
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen; alpha = outAlpha }
+                .drawWithContent {
+                    drawContent()
+                    val topFadeHeightPx = 64.dp.toPx()
+                    val bottomFadeHeightPx = 140.dp.toPx()
+                    val imageHeight = size.height
+
+                    // Top fade: 64dp at the top, transparent → opaque.
+                    // DstIn removes content where source is transparent
+                    // (top of image) — sharp art's top edge fades out,
+                    // revealing the blurred bg behind (status bar area).
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,   // y=0: remove content (top hidden)
+                                Color.Black           // y=topFadeHeightPx: keep content
+                            ),
+                            startY = 0f,
+                            endY = topFadeHeightPx
+                        ),
+                        blendMode = BlendMode.DstIn
+                    )
+
+                    // Bottom fade: 140dp at the bottom, opaque → transparent.
+                    // DstIn removes content where source is transparent
+                    // (bottom of image) — sharp art's bottom edge fades
+                    // out, revealing the blurred bg behind (controls area).
+                    val bottomFadeStartY = (imageHeight - bottomFadeHeightPx).coerceAtLeast(0f)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black,         // bottomFadeStartY: keep content
+                                Color.Transparent    // imageHeight: remove content
+                            ),
+                            startY = bottomFadeStartY,
+                            endY = imageHeight
+                        ),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
+                .pointerInput(albumArtUri) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            if (songId != null) {
+                                PlaylistStore.toggleFavorite(songId)
+                                showHeartPop = true
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                        }
+                    )
+                }
+        ) {
+            if (albumArtUri != null) {
+                AsyncImage(
+                    model = albumArtUri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        // OUTGOING medium-blur bridge (fades out during crossfade)
+        if (albumArtUri != null) {
+            // Medium-blur bridge (32dp) with bell-curve mask
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        alpha = outAlpha
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.00f to Color.Transparent,
+                                    0.40f to Color.Transparent,
+                                    0.48f to Color.Black,
+                                    0.55f to Color.Black,
+                                    0.70f to Color.Black.copy(alpha = 0.4f),
+                                    0.85f to Color.Transparent,
+                                    1.00f to Color.Transparent
+                                )
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                AsyncImage(
+                    model = albumArtUri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = bgSatFilter,
+                    modifier = Modifier.fillMaxSize().blur(32.dp)
+                )
+            }
+        }
+
+        // VISUAL CROSSFADE: incoming art mixes in on top of outgoing.
+        // Plain alpha crossfade (no diagonal wipe) for true color mixing —
+        // both images are simultaneously visible during the transition,
+        // blending together smoothly. Incoming layers stay rendered until
+        // albumArtUri catches up to prevent any snap at the end.
+        if (showIncoming && xfIncomingArt != null) {
+            // Incoming blurred bg — plain alpha fade in, no diagonal mask.
+            // True mixing: outgoing (at outAlpha) + incoming (at inAlpha)
+            // are both visible, colors blend naturally.
+            AsyncImage(
+                model = xfIncomingArt,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = bgSatFilter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(96.dp)
+                    .graphicsLayer { alpha = inAlpha }
+            )
+
+            // Incoming sharp art — same square container + fade as outgoing
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .align(Alignment.TopCenter)
+                    .offset(y = 24.dp)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        alpha = inAlpha
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val topFade = 64.dp.toPx()
+                        val bottomFade = 140.dp.toPx()
+                        val imgH = size.height
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black),
+                                startY = 0f, endY = topFade
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                        val botStart = (imgH - bottomFade).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = botStart, endY = imgH
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                AsyncImage(
+                    model = xfIncomingArt,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // INCOMING medium-blur bridge (32dp) — fades in during crossfade
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        alpha = inAlpha
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0.00f to Color.Transparent,
+                                    0.40f to Color.Transparent,
+                                    0.48f to Color.Black,
+                                    0.55f to Color.Black,
+                                    0.70f to Color.Black.copy(alpha = 0.4f),
+                                    0.85f to Color.Transparent,
+                                    1.00f to Color.Transparent
+                                )
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                AsyncImage(
+                    model = xfIncomingArt,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    colorFilter = bgSatFilter,
+                    modifier = Modifier.fillMaxSize().blur(32.dp)
+                )
+            }
+
+        }
+
+        } // end layerBackdrop Box
+
+        // (3) Heart pop overlay (double-tap on album art to favorite)
+        if (showHeartPop) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    imageVector = CoralIcons.HeartFilled,
+                    contentDescription = null,
+                    colorFilter = ColorFilter.tint(
+                        if (isFavorite) palette.accent else Color.White
+                    ),
+                    modifier = Modifier.size(80.dp)
+                )
+            }
+        }
+
+        // (4) 3-segment cover indicator — at EXACT center of screen
+        var coverMode by remember { mutableStateOf(0) }
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset(y = center - 1.5.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 60.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Segment 1: Original cover
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(if (coverMode == 0) Color.White else Color.White.copy(alpha = 0.2f))
+                    .clickable { coverMode = 0 }
+            )
+            // Segment 2: Custom image
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(if (coverMode == 1) Color.White else Color.White.copy(alpha = 0.2f))
+                    .clickable { coverMode = 1 }
+            )
+            // Segment 3: Animated video
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(if (coverMode == 2) Color.White else Color.White.copy(alpha = 0.2f))
+                    .clickable { coverMode = 2 }
+            )
+        }
+
+        // (5) Content column — at bottom of screen, below the indicator
+        var seekbarWidthPx by remember { mutableFloatStateOf(1f) }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopStart)
+                .offset(y = center + 1.5.dp + 22.dp)
+                .padding(horizontal = 24.dp)
+        ) {
+
+                // Song title + glass capsule (side by side) ─────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = TextStyle(shadow = textShadow),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    // Glass morphism capsule — favorite / share / menu
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .drawBackdrop(
+                                backdrop = glassBackdrop,
+                                shape = { RoundedCornerShape(20.dp) },
+                                effects = {
+                                    vibrancy()
+                                    colorControls(
+                                        brightness = 0.05f,
+                                        contrast = 1f,
+                                        saturation = 1.5f
+                                    )
+                                    blur(12f.dp.toPx())
+                                },
+                                onDrawSurface = {
+                                    drawRect(Color.Black.copy(alpha = 0.25f))
+                                }
+                            )
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Favorite — HeartLucide (not favorited) / HeartLucideFilled (favorited)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = androidx.compose.material3.ripple(bounded = false)
+                                    ) {
+                                        if (songId != null) {
+                                            PlaylistStore.toggleFavorite(songId)
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isFavorite) CoralIcons.HeartLucideFilled else CoralIcons.HeartLucide,
+                                    contentDescription = "Favorite",
+                                    tint = if (isFavorite) animatedAccentColor else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            // Share
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = androidx.compose.material3.ripple(bounded = false)
+                                    ) { },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = CoralIcons.Share2,
+                                    contentDescription = "Share",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            // Menu (more)
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = androidx.compose.material3.ripple(bounded = false)
+                                    ) {
+                                        songId?.let { onAddToPlaylist(it) }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = CoralIcons.Ellipsis,
+                                    contentDescription = "More",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                // Artist name (left-aligned, 95% white, no shadow)
+                Text(
+                    text = artist,
+                    color = Color.White.copy(alpha = 0.95f),
+                    fontSize = 16.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Lyrics preview (3-line synced) ────────────────────────
+                val lyricsRepository = remember { com.rajatxo.coral.data.lyrics.LyricsRepository(context) }
+                var lyricData by remember { mutableStateOf<com.rajatxo.coral.data.lyrics.Lyric?>(null) }
+                // ★ Key on (title, artist) ONLY — not durationMs.
+                //   durationMs starts at 0L then updates when MediaController
+                //   connects. If we key on it, the effect re-runs and resets
+                //   lyricData, causing the strip to lose lyrics.
+                androidx.compose.runtime.LaunchedEffect(title, artist) {
+                    try {
+                        lyricData = lyricsRepository.getLyrics(
+                            track = title, artist = artist, album = albumName, durationMs = durationMs
+                        )
+                    } catch (_: Exception) { }
+                }
+                val activeLineIndex = if (lyricData != null && lyricData!!.synced && lyricData!!.lines.isNotEmpty()) {
+                    findActiveLineIndex(lyricData!!.lines, currentPositionMs)
+                } else -1
+
+                // 3-line synced lyrics preview
+                if (lyricData != null && lyricData!!.synced && activeLineIndex >= 0) {
+                    val lines = lyricData!!.lines
+                    // Previous line (smaller, 90% white)
+                    if (activeLineIndex > 0) {
+                        Text(
+                            text = lines[activeLineIndex - 1].text.ifBlank { "\u266A" },
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    // Active line (bigger, full white)
+                    Text(
+                        text = lines[activeLineIndex].text.ifBlank { "\u266A" },
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Next line (smaller, 90% white)
+                    if (activeLineIndex < lines.size - 1) {
+                        Text(
+                            text = lines[activeLineIndex + 1].text.ifBlank { "\u266A" },
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    Text(
+                        text = albumName ?: "No album info",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (durationMs > 0) "Duration: " + formatTime(durationMs) else "",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Tap to search LrcLib",
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Seek bar (buttery smooth, no thumb, thickens on drag) ──
+                var seekbarWidthPx by remember { mutableFloatStateOf(1f) }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp)
+                        .onSizeChanged { seekbarWidthPx = it.width.toFloat() }
+                        .pointerInput(durationMs) {
+                            detectDragGestures(
+                                onDragStart = { isDragging = true },
+                                onDragEnd = {
+                                    isDragging = false
+                                    dragFraction?.let { frac ->
+                                        if (durationMs > 0) onSeek((frac * durationMs).toLong())
+                                    }
+                                    dragFraction = null
+                                },
+                                onDragCancel = { isDragging = false; dragFraction = null },
+                                onDrag = { change, _ ->
+                                    if (durationMs > 0 && seekbarWidthPx > 0) {
+                                        val frac = (change.position.x / seekbarWidthPx).coerceIn(0f, 1f)
+                                        dragFraction = frac
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(trackHeight)
+                            .clip(RoundedCornerShape(trackHeight / 2))
+                            .align(Alignment.CenterStart)
+                            .background(Color.White.copy(alpha = 0.2f))
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(displayProgress)
+                            .height(trackHeight)
+                            .clip(RoundedCornerShape(trackHeight / 2))
+                            .align(Alignment.CenterStart)
+                            .background(Color.White)
+                    )
+                }
+
+                // Time labels ────────────────────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = formatTime((displayProgress * durationMs).toLong()),
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "-" + formatTime(((1f - displayProgress) * durationMs).toLong()),
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Small + Big glass capsule (side by side, combined width = timeline)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Small glass capsule — sleep timer
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .drawBackdrop(
+                                backdrop = glassBackdrop,
+                                shape = { RoundedCornerShape(22.dp) },
+                                effects = {
+                                    vibrancy()
+                                    colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                    blur(12f.dp.toPx())
+                                },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.25f)) }
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = androidx.compose.material3.ripple(bounded = false)
+                            ) { },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralIcons.Timer,
+                            contentDescription = "Sleep timer",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    // Big glass capsule — play/pause + swipe L/R for next/prev
+                    Box(
+                        modifier = Modifier
+                            .weight(2f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .drawBackdrop(
+                                backdrop = glassBackdrop,
+                                shape = { RoundedCornerShape(22.dp) },
+                                effects = {
+                                    vibrancy()
+                                    colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                    blur(12f.dp.toPx())
+                                },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.25f)) }
+                            )
+                            .pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragEnd = { dragAccumulator = 0f },
+                                    onHorizontalDrag = { _, dragAmount ->
+                                        dragAccumulator += dragAmount
+                                        if (dragAccumulator < -dragThreshold) {
+                                            onNextClick()
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                            dragAccumulator = 0f
+                                        } else if (dragAccumulator > dragThreshold) {
+                                            onPrevClick()
+                                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                            dragAccumulator = 0f
+                                        }
+                                    }
+                                )
+                            }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = androidx.compose.material3.ripple(bounded = false)
+                            ) {
+                                onPlayPauseClick()
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = CoralIcons.ChevronsLeft,
+                                contentDescription = "Swipe left for previous",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isPlaying) "Pause" else "Play",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontFamily = CalSansFamily,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = CoralIcons.ChevronsRight,
+                                contentDescription = "Swipe right for next",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Big glass capsule (full width) — shuffle / repeat / queue / lyrics
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .drawBackdrop(
+                            backdrop = glassBackdrop,
+                            shape = { RoundedCornerShape(22.dp) },
+                            effects = {
+                                vibrancy()
+                                colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                blur(12f.dp.toPx())
+                            },
+                            onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.25f)) }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Shuffle
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = androidx.compose.material3.ripple(bounded = false)
+                                ) {
+                                    mediaController?.let {
+                                        it.shuffleModeEnabled = !it.shuffleModeEnabled
+                                        shuffleEnabled = it.shuffleModeEnabled
+                                    }
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = CoralIcons.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = if (shuffleEnabled) Color.White else Color.White.copy(alpha = 0.4f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        // Repeat (cycle OFF → ONE → ALL)
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = androidx.compose.material3.ripple(bounded = false)
+                                ) {
+                                    mediaController?.let {
+                                        val newMode = when (it.repeatMode) {
+                                            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+                                            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
+                                            else -> Player.REPEAT_MODE_OFF
+                                        }
+                                        it.repeatMode = newMode
+                                        repeatMode = newMode
+                                    }
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when (repeatMode) {
+                                Player.REPEAT_MODE_ONE -> Text("1", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Player.REPEAT_MODE_ALL -> Text("\u221E", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Normal)
+                                else -> Icon(
+                                    imageVector = CoralIcons.Repeat,
+                                    contentDescription = "Repeat",
+                                    tint = Color.White.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        // Queue — opens add to playlist
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = androidx.compose.material3.ripple(bounded = false)
+                                ) {
+                                    songId?.let { onAddToPlaylist(it) }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = CoralIcons.Queue,
+                                contentDescription = "Queue",
+                                tint = Color.White.copy(alpha = 0.4f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        // Lyrics
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = androidx.compose.material3.ripple(bounded = false)
+                                ) { showLyrics = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = CoralIcons.Music,
+                                contentDescription = "Lyrics",
+                                tint = Color.White.copy(alpha = 0.4f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+            }
+
+
+
+        if (showLyrics) {
+            LyricsSheet(
+                trackName = title,
+                artistName = artist,
+                albumName = albumName,
+                durationMs = durationMs,
+                currentPositionMs = currentPositionMs,
+                isPlaying = isPlaying,
+                onDismiss = { showLyrics = false },
+                onSeek = onSeek,
+                albumArtUri = albumArtUri
+            )
+        }
+    }
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/** m:ss formatter — used for both elapsed and remaining times. */
+private fun formatTime(ms: Long): String {
+    val s = ms / 1000
+    return "%d:%02d".format(s / 60, s % 60)
+}
+
+/** Find the index of the lyric line that should currently be active. */
+private fun findActiveLineIndex(lines: List<com.rajatxo.coral.data.lyrics.LyricLine>, positionMs: Long): Int {
+    if (lines.isEmpty()) return -1
+    var lo = 0
+    var hi = lines.lastIndex
+    var result = -1
+    while (lo <= hi) {
+        val mid = (lo + hi) / 2
+        if (lines[mid].timeMs in 0..positionMs) {
+            result = mid
+            lo = mid + 1
+        } else if (lines[mid].timeMs > positionMs) {
+            hi = mid - 1
+        } else {
+            lo = mid + 1
+        }
+    }
+    return result
+}
