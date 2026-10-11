@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        ★ Coral X — Network Security Config
+
+        Blocks ALL cleartext (HTTP) traffic by default.
+        Only HTTPS connections are allowed.
+
+        This is required for Play Store compliance and protects against
+        man-in-the-middle attacks on public WiFi.
+
+        If a specific domain needs HTTP (e.g., a local server for testing),
+        add a <domain-config> entry here. But production should never
+        allow cleartext.
+    -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
