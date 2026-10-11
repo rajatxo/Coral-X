@@ -17,3 +17,4 @@ keystore.properties
 misc/src/
 misc/consumer-rules.pro
 misc/proguard-rules.pro
+app/build/

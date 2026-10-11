@@ -1,26 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!--
-        ★ Coral-X Theme — follows the universal pattern from ViTune/Metrolist/
-          ArchiveTune/Convx/harmber/vivi-music (6 repos use this exact config).
+        ★ Coral X Theme — universal layout foundation.
 
-        Key settings (ALL required for universal layout correctness):
-          - parent="android:Theme.Material.Light.NoActionBar": platform theme
-            (NOT AppCompat). Compose provides all theming. This guarantees
-            windowDrawsSystemBarBackgrounds works on API 21+.
-          - windowDrawsSystemBarBackgrounds=true: content draws behind bars.
-          - statusBarColor + navigationBarColor: transparent (no scrim).
-          - enforceStatusBarContrast=false: prevents Android 10+ from
-            auto-injecting a translucent scrim behind the status bar.
-          - enforceNavigationBarContrast=false: CRITICAL — without this,
-            Android 10+ paints an opaque grey scrim behind the nav bar on
-            apps that opt into edge-to-edge. This is the #1 cause of "ugly
-            nav bar" in music apps.
-          - windowContentOverlay=@null: removes default shadow under status bar.
-          - windowMinWidthMinor/Major=100%: prevents OEM letterboxing on
-            tablets/foldables.
-          - windowLayoutInDisplayCutoutMode=shortEdges: content draws into
-            the cutout area in landscape (for punch-hole cameras).
+        Follows the pattern from 6+ repos (ViTune, Metrolist, ArchiveTune,
+        Convx, harmber, vivi-music):
+          - parent="android:Theme.Material.Light.NoActionBar" (platform theme)
+          - Transparent system bars (no scrim)
+          - enforceStatusBarContrast / enforceNavigationBarContrast = false
+            (prevents Android 10+ auto-injecting a grey scrim)
+          - windowDrawsSystemBarBackgrounds = true (content draws behind bars)
+          - windowLayoutInDisplayCutoutMode = shortEdges (full bleed on notches)
+          - windowMinWidthMinor/Major = 100% (no OEM letterboxing on tablets)
+          - windowContentOverlay = @null (no default status bar shadow)
     -->
     <style name="Theme.Coral" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/splash_background</item>
