@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Coral X splash screen background.
-    Pure black — seamless launch, no white flash.
+    Pure black with the Coral logo centered.
+    This makes the launch feel seamless: logo → splash → app, all the
+    same pure black color, no white flash.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
             <solid android:color="#000000" />
         </shape>
+    </item>
+    <item android:gravity="center">
+        <bitmap
+            android:src="@drawable/ic_launcher_foreground"
+            android:gravity="center"
+            android:tileMode="disabled" />
     </item>
 </layer-list>
