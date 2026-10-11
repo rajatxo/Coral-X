@@ -22,8 +22,8 @@ android {
         applicationId = "com.rajatxo.coralx"
         minSdk = 24
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.2.0"
+        versionCode = 6
+        versionName = "0.4.0"
     }
 
     signingConfigs {
@@ -93,4 +93,10 @@ dependencies {
 
     // ★ JSON parsing (for UpdateChecker's GitHub API response)
     implementation("org.json:json:20240303")
+
+    // ★ Kyant backdrop — real AGSL glass blur (same as old Coral)
+    implementation("io.github.kyant0:backdrop:1.0.0")
+
+    // ★ Coil3 — image loading (for album art when music scanning is added)
+    implementation("io.coil-kt.coil3:coil-compose:3.0.4")
 }
