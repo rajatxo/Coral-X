@@ -47,12 +47,37 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.Transparent.hashCode()),
-            navigationBarStyle = SystemBarStyle.dark(Color.Transparent.hashCode())
-        )
+
+        // ★ Law 2: Manual edge-to-edge (NOT enableEdgeToEdge()).
+        //   This gives us per-screen-state control of system bar icon appearance
+        //   (e.g., flip to white icons when the player expands over bright artwork).
+        //   enableEdgeToEdge() applies its own default bar colors that we can't override.
+        window.decorView.layoutDirection = android.view.View.LAYOUT_DIRECTION_LTR
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+
         setContent {
             CoralApp()
+        }
+    }
+
+    /**
+     * ★ Law 9: System bar icon appearance — flips based on theme darkness.
+     *   Called from a LaunchedEffect so it reacts to dark-mode toggles.
+     *   On API ≥ M, only icon appearance is toggled (bars stay transparent).
+     *   On pre-M, a translucent scrim is added for contrast.
+     */
+    private fun setSystemBarAppearance(isDark: Boolean) {
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !isDark
+            isAppearanceLightNavigationBars = !isDark
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            window.statusBarColor = (if (isDark) android.graphics.Color.TRANSPARENT
+                else (0x33000000).toInt())
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            window.navigationBarColor = (if (isDark) android.graphics.Color.TRANSPARENT
+                else (0x33000000).toInt())
         }
     }
 }

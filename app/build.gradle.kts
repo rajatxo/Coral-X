@@ -1,8 +1,23 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+// ─── Signing keystore — read from keystore.properties (gitignored) ───
+//   The keystore file (coral-x-release.jks) is also gitignored.
+//   This is your PERMANENT signing identity — back it up somewhere safe
+//   (cloud, USB, etc.). If you lose it, you can never update the app.
+//   For GitHub Actions CI, the keystore is stored as a GitHub Secret
+//   (base64-encoded) and decoded at build time.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
@@ -13,27 +28,44 @@ android {
         applicationId = "com.rajatxo.coral"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
+    }
+
+    // ─── Signing config — uses the permanent keystore for BOTH debug and release ───
+    //   This way, debug APKs always have the same signing key → can update over
+    //   each other without uninstalling. Same for release builds.
+    signingConfigs {
+        create("release") {
+            if (keystoreProperties.isNotEmpty()) {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
-            manifestPlaceholders["appName"] = "Coral"
+            manifestPlaceholders["appName"] = "Coral X Debug"
+            // ★ Use the release keystore so debug builds always have the same
+            //   signing identity → updates install cleanly over previous debug APKs.
+            signingConfig = signingConfigs.getByName("release")
         }
 
         release {
             versionNameSuffix = "-RELEASE"
             isMinifyEnabled = true
             isShrinkResources = true
-            manifestPlaceholders["appName"] = "Coral"
+            manifestPlaceholders["appName"] = "Coral X"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

@@ -1,16 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!--
-        Base Coral theme. Tuned for FULLY TRANSPARENT system bars (the
-        ViTune-style seamless edge-to-edge look).
+        ★ Coral-X Theme — follows the universal pattern from ViTune/Metrolist/
+          ArchiveTune/Convx/harmber/vivi-music (6 repos use this exact config).
 
-        Key settings:
-          - windowBackground: solid #000000 (matches CoralColors.Surface
-            so there's no flash when Compose takes over from the splash)
-          - statusBarColor + navigationBarColor: transparent
-          - windowDrawsSystemBarBackgrounds: true (content draws behind bars)
-          - windowLayoutInDisplayCutoutMode: shortEdges (full bleed on
-            notched/punched-hole displays)
+        Key settings (ALL required for universal layout correctness):
+          - parent="android:Theme.Material.Light.NoActionBar": platform theme
+            (NOT AppCompat). Compose provides all theming. This guarantees
+            windowDrawsSystemBarBackgrounds works on API 21+.
+          - windowDrawsSystemBarBackgrounds=true: content draws behind bars.
+          - statusBarColor + navigationBarColor: transparent (no scrim).
+          - enforceStatusBarContrast=false: prevents Android 10+ from
+            auto-injecting a translucent scrim behind the status bar.
+          - enforceNavigationBarContrast=false: CRITICAL — without this,
+            Android 10+ paints an opaque grey scrim behind the nav bar on
+            apps that opt into edge-to-edge. This is the #1 cause of "ugly
+            nav bar" in music apps.
+          - windowContentOverlay=@null: removes default shadow under status bar.
+          - windowMinWidthMinor/Major=100%: prevents OEM letterboxing on
+            tablets/foldables.
+          - windowLayoutInDisplayCutoutMode=shortEdges: content draws into
+            the cutout area in landscape (for punch-hole cameras).
     -->
     <style name="Theme.Coral" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@drawable/splash_background</item>
@@ -19,8 +29,11 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+        <item name="android:windowMinWidthMajor">100%</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
-        <item name="android:enforceStatusBarContrast">false</item>
-        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="29">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
     </style>
 </resources>

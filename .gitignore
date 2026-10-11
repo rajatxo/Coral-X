@@ -1,9 +1,19 @@
-skills/
-node_modules/
-build/
-local.properties
-.gradle/
-app/build/
-gradle/
-gradlew
-gradlew.bat
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+
+# ★ Signing secrets — NEVER commit these
+*.jks
+*.keystore
+keystore.properties
+
+# Misc module stray files (not a Gradle module)
+misc/src/
+misc/consumer-rules.pro
+misc/proguard-rules.pro
