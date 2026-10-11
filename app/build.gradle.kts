@@ -51,9 +51,11 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
             manifestPlaceholders["appName"] = "Coral X Debug"
-            // ★ Use the release keystore so debug builds always have the same
-            //   signing identity → updates install cleanly over previous debug APKs.
-            signingConfig = signingConfigs.getByName("release")
+            // ★ Debug builds use the DEFAULT debug signing config — this way CI can
+            //   build debug APKs even without the release keystore being configured.
+            //   The release keystore is only needed for release builds.
+            //   For local development with release-signed debug builds, uncomment:
+            //   signingConfig = signingConfigs.getByName("release")
         }
 
         release {

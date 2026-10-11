@@ -11,6 +11,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      # ★ Use env vars for secrets — GitHub Actions interpolates ${{ secrets.X }}
+      #   at workflow-compose time, but env vars are safer (no shell escaping issues
+      #   with passwords containing spaces like "The Weeknd 199").
+      CORAL_X_KEYSTORE_BASE64: ${{ secrets.CORAL_X_KEYSTORE_BASE64 }}
+      CORAL_X_STORE_PASSWORD: ${{ secrets.CORAL_X_STORE_PASSWORD }}
+      CORAL_X_KEY_ALIAS: ${{ secrets.CORAL_X_KEY_ALIAS }}
+      CORAL_X_KEY_PASSWORD: ${{ secrets.CORAL_X_KEY_PASSWORD }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -31,27 +40,25 @@ jobs:
 
     - name: Decode signing keystore
       run: |
-        if [ -n "${{ secrets.CORAL_X_KEYSTORE_BASE64 }}" ]; then
-          echo "${{ secrets.CORAL_X_KEYSTORE_BASE64 }}" | base64 -d > coral-x-release.jks
-          echo "KEYSTORE_FILE=coral-x-release.jks" >> $GITHUB_ENV
-          echo "STORE_PASSWORD=${{ secrets.CORAL_X_STORE_PASSWORD }}" >> $GITHUB_ENV
-          echo "KEY_ALIAS=${{ secrets.CORAL_X_KEY_ALIAS }}" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=${{ secrets.CORAL_X_KEY_PASSWORD }}" >> $GITHUB_ENV
-          echo "Keystore decoded successfully"
+        if [ -n "$CORAL_X_KEYSTORE_BASE64" ]; then
+          echo "$CORAL_X_KEYSTORE_BASE64" | base64 -d > coral-x-release.jks
+          echo "✓ Keystore decoded ($(wc -c < coral-x-release.jks) bytes)"
+          # Create keystore.properties in repo root (build.gradle.kts reads from rootProject)
+          cat > keystore.properties << 'PROPS_EOF'
+        storeFile=coral-x-release.jks
+        storePassword=PLACEHOLDER_STORE_PASS
+        keyAlias=PLACEHOLDER_KEY_ALIAS
+        keyPassword=PLACEHOLDER_KEY_PASS
+        PROPS_EOF
+          # Replace placeholders with actual secret values (sed to handle spaces in passwords)
+          sed -i "s|PLACEHOLDER_STORE_PASS|$CORAL_X_STORE_PASSWORD|g" keystore.properties
+          sed -i "s|PLACEHOLDER_KEY_ALIAS|$CORAL_X_KEY_ALIAS|g" keystore.properties
+          sed -i "s|PLACEHOLDER_KEY_PASS|$CORAL_X_KEY_PASSWORD|g" keystore.properties
+          echo "✓ keystore.properties created"
+          echo "--- keystore.properties (passwords masked) ---"
+          sed 's/=.*/=***/' keystore.properties
         else
-          echo "No keystore secret found — building unsigned (debug-signed) APK"
-        fi
-
-    - name: Create keystore.properties
-      run: |
-        if [ -n "$KEYSTORE_FILE" ]; then
-          cat > keystore.properties << EOF
-        storeFile=$KEYSTORE_FILE
-        storePassword=$STORE_PASSWORD
-        keyAlias=$KEY_ALIAS
-        keyPassword=$KEY_PASSWORD
-        EOF
-          echo "keystore.properties created"
+          echo "⚠ No keystore secret found — debug APK will be unsigned (debug-signed)"
         fi
 
     - name: Grant execute permission for gradlew
@@ -60,8 +67,8 @@ jobs:
     - name: Build debug APK
       run: ./gradlew :app:assembleDebug --no-daemon --max-workers=2
 
-    - name: Build release APK (if keystore is configured)
-      if: env.KEYSTORE_FILE != ''
+    - name: Build release APK (only if keystore is configured)
+      if: env.CORAL_X_KEYSTORE_BASE64 != ''
       run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
 
     - name: Upload debug APK
@@ -72,7 +79,7 @@ jobs:
         retention-days: 30
 
     - name: Upload release APK
-      if: env.KEYSTORE_FILE != ''
+      if: env.CORAL_X_KEYSTORE_BASE64 != ''
       uses: actions/upload-artifact@v4
       with:
         name: coral-x-release-apk
