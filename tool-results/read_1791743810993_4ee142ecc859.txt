@@ -1,0 +1,1775 @@
+     1→package com.rajatxo.coral.ui.screens
+     2→
+     3→import androidx.compose.animation.animateColorAsState
+     4→import androidx.compose.animation.core.LinearEasing
+     5→import androidx.compose.animation.core.RepeatMode
+     6→import androidx.compose.animation.core.animateDpAsState
+     7→import androidx.compose.animation.core.animateFloat
+     8→import androidx.compose.animation.core.animateFloatAsState
+     9→import androidx.compose.animation.core.infiniteRepeatable
+    10→import androidx.compose.animation.core.spring
+    11→import androidx.compose.animation.core.tween
+    12→import androidx.compose.animation.AnimatedContent
+    13→import androidx.compose.animation.AnimatedVisibility
+    14→import androidx.compose.animation.fadeIn
+    15→import androidx.compose.animation.fadeOut
+    16→import androidx.compose.animation.slideInHorizontally
+    17→import androidx.compose.animation.slideOutHorizontally
+    18→import androidx.compose.animation.togetherWith
+    19→import androidx.compose.foundation.Canvas
+    20→import androidx.compose.foundation.background
+    21→import androidx.compose.foundation.border
+    22→import androidx.compose.foundation.clickable
+    23→import androidx.compose.foundation.combinedClickable
+    24→import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+    25→import androidx.compose.foundation.interaction.MutableInteractionSource
+    26→import androidx.compose.foundation.interaction.collectIsPressedAsState
+    27→import androidx.compose.foundation.layout.Arrangement
+    28→import androidx.compose.foundation.layout.Box
+    29→import androidx.compose.foundation.layout.Column
+    30→import androidx.compose.foundation.layout.PaddingValues
+    31→import androidx.compose.foundation.layout.Row
+    32→import androidx.compose.foundation.layout.Spacer
+    33→import androidx.compose.foundation.layout.fillMaxHeight
+    34→import androidx.compose.foundation.layout.fillMaxSize
+    35→import androidx.compose.foundation.layout.fillMaxWidth
+    36→import androidx.compose.foundation.layout.height
+    37→import androidx.compose.foundation.layout.offset
+    38→import androidx.compose.foundation.layout.padding
+    39→import androidx.compose.foundation.layout.size
+    40→import androidx.compose.foundation.layout.statusBarsPadding
+    41→import androidx.compose.foundation.layout.width
+    42→import androidx.compose.foundation.layout.wrapContentSize
+    43→import androidx.compose.foundation.lazy.LazyColumn
+    44→import androidx.compose.foundation.lazy.LazyRow
+    45→import androidx.compose.foundation.lazy.items
+    46→import androidx.compose.foundation.lazy.itemsIndexed
+    47→import androidx.compose.foundation.pager.HorizontalPager
+    48→import androidx.compose.foundation.pager.rememberPagerState
+    49→import androidx.compose.foundation.shape.CircleShape
+    50→import androidx.compose.foundation.shape.RoundedCornerShape
+    51→import androidx.compose.material3.CircularProgressIndicator
+    52→import androidx.compose.material3.ExperimentalMaterial3Api
+    53→import androidx.compose.material3.Icon
+    54→import androidx.compose.material3.Text
+    55→import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+    56→import androidx.compose.material3.pulltorefresh.PullToRefreshState
+    57→import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+    58→import androidx.compose.runtime.Composable
+    59→import androidx.compose.runtime.LaunchedEffect
+    60→import androidx.compose.runtime.collectAsState
+    61→import androidx.compose.runtime.getValue
+    62→import androidx.compose.runtime.mutableFloatStateOf
+    63→import androidx.compose.runtime.mutableIntStateOf
+    64→import androidx.compose.runtime.mutableStateOf
+    65→import androidx.compose.runtime.remember
+    66→import androidx.compose.runtime.rememberCoroutineScope
+    67→import androidx.compose.runtime.setValue
+    68→import androidx.compose.ui.Alignment
+    69→import androidx.compose.ui.Modifier
+    70→import androidx.compose.ui.draw.blur
+    71→import androidx.compose.ui.draw.clip
+    72→import androidx.compose.ui.draw.drawWithContent
+    73→import androidx.compose.ui.draw.rotate
+    74→import androidx.compose.ui.draw.scale
+    75→import androidx.compose.ui.draw.shadow
+    76→import androidx.compose.ui.graphics.BlendMode
+    77→import androidx.compose.ui.graphics.Brush
+    78→import androidx.compose.ui.graphics.Color
+    79→import androidx.compose.ui.graphics.CompositingStrategy
+    80→import androidx.compose.ui.graphics.graphicsLayer
+    81→import androidx.compose.ui.input.pointer.pointerInput
+    82→import androidx.compose.ui.layout.ContentScale
+    83→import androidx.compose.ui.platform.LocalContext
+    84→import androidx.compose.ui.text.font.FontWeight
+    85→import androidx.compose.ui.text.style.TextOverflow
+    86→import androidx.compose.ui.unit.dp
+    87→import androidx.compose.ui.unit.sp
+    88→import coil3.compose.AsyncImage
+    89→import coil3.request.ImageRequest
+    90→import coil3.request.transformations
+    91→import com.rajatxo.coral.util.BlurTransformation
+    92→import com.kyant.backdrop.drawBackdrop
+    93→import com.kyant.backdrop.effects.blur
+    94→import com.kyant.backdrop.effects.colorControls
+    95→import com.kyant.backdrop.effects.vibrancy
+    96→import dev.chrisbanes.haze.hazeEffect
+    97→import dev.chrisbanes.haze.hazeSource
+    98→import com.rajatxo.coral.domain.model.Song
+    99→import com.rajatxo.coral.ui.components.BugLineRefreshIndicator
+   100→import com.rajatxo.coral.ui.icons.CoralIcons
+   101→import com.rajatxo.coral.ui.theme.CalSansFamily
+   102→import com.rajatxo.coral.ui.theme.QuirkFontFamily
+   103→import com.rajatxo.coral.util.CoralPalette
+   104→import com.rajatxo.coral.util.PaletteCache
+   105→import com.rajatxo.coral.util.extractPalette
+   106→import kotlin.random.Random
+   107→import kotlinx.coroutines.delay
+   108→import kotlinx.coroutines.launch
+   109→
+   110→/**
+   111→ * QuickPicksScreen — "Editorial Gallery" edition.
+   112→ *
+   113→ * Light/dark theme-aware. Asymmetric hero grid + horizontal carousels.
+   114→ * Songs are randomized on each app launch. Carousels are infinite
+   115→ * (repeat the song list so you can swipe forever).
+   116→ *
+   117→ * Pull-to-refresh: pulling down on this page refreshes the Quick Picks
+   118→ * content (rolls a new random seed → new hero/recent/more selections,
+   119→ * same effect as tab-switching away and back). The indicator is a soft
+   120→ * wind animation, NOT the boring circular arrow.
+   121→ */
+   122→@OptIn(ExperimentalMaterial3Api::class)
+   123→@Composable
+   124→fun QuickPicksScreen(
+   125→    songs: List<Song>,
+   126→    currentSongId: Long?,
+   127→    currentSongArt: android.net.Uri? = null,
+   128→    capsuleVisible: Boolean = false,
+   129→    capsuleRemaining: Long = 0L,
+   130→    onExtend: () -> Unit = {},
+   131→    onSongClick: (Song) -> Unit = {},
+   132→    onBackClick: () -> Unit = {},
+   133→    isPlaying: Boolean = false,
+   134→    onPlayPauseClick: () -> Unit = {},
+   135→    onCapsuleClick: (Song) -> Unit = {},
+   136→    onSpeedDialHeaderClick: () -> Unit = {},
+   137→    glassHazeState: dev.chrisbanes.haze.HazeState? = null,
+   138→    glassStyle: dev.chrisbanes.haze.HazeStyle? = null
+   139→) {
+   140→    val context = LocalContext.current
+   141→
+   142→    // ─── Current song's palette → dark gradient background ──────────
+   143→    // The background is a dark gradient using the current song's palette
+   144→    // colors. If no song is playing, use a default dark palette.
+   145→    var palette by remember { mutableStateOf(CoralPalette.Default) }
+   146→    LaunchedEffect(currentSongArt) {
+   147→        if (currentSongArt != null) {
+   148→            PaletteCache.get(currentSongArt)?.let { palette = it }
+   149→            extractPalette(context, currentSongArt)?.let {
+   150→                palette = it
+   151→                PaletteCache.put(currentSongArt, it)
+   152→            }
+   153→        }
+   154→    }
+   155→    // ─── Background gradient (single dominant color → dark) ─────────
+   156→    // Uses ONLY the dominant palette color (palette.primary), not a mix
+   157→    // of primary + secondary. One color, fading from vibrant at the top
+   158→    // (behind the blur header) to near-black at the bottom.
+   159→    //
+   160→    // The transition from vibrant → dark is BUTTERY SMOOTH via many
+   161→    // closely-spaced color stops. Each stop smoothly steps the alpha
+   162→    // down, so there's no visible "band" or hard transition line.
+   163→    //
+   164→    // Layout:
+   165→    //   0.00 - 0.10  → vibrant (alpha 0.85)  [behind blur header]
+   166→    //   0.10 - 0.30  → buttery smooth fade   [transition zone]
+   167→    //   0.30 - 1.00  → dark gradient         [page content]
+   168→    //
+   169→    // All colors animate smoothly when the song changes (tween 800ms).
+   170→    val vibrantTop by animateColorAsState(
+   171→        targetValue = palette.primary.copy(alpha = 0.85f),
+   172→        animationSpec = tween(800), label = "bgVibrantTop"
+   173→    )
+   174→    // Mid-transition stops — same hue, progressively lower alpha.
+   175→    // These create the "buttery" feel by stepping alpha down gradually
+   176→    // instead of one hard jump from 0.85 → 0.25.
+   177→    val fade1 by animateColorAsState(
+   178→        targetValue = palette.primary.copy(alpha = 0.65f),
+   179→        animationSpec = tween(800), label = "bgFade1"
+   180→    )
+   181→    val fade2 by animateColorAsState(
+   182→        targetValue = palette.primary.copy(alpha = 0.45f),
+   183→        animationSpec = tween(800), label = "bgFade2"
+   184→    )
+   185→    val fade3 by animateColorAsState(
+   186→        targetValue = palette.primary.copy(alpha = 0.28f),
+   187→        animationSpec = tween(800), label = "bgFade3"
+   188→    )
+   189→    val animatedTop by animateColorAsState(
+   190→        targetValue = palette.primary.copy(alpha = 0.18f),
+   191→        animationSpec = tween(800), label = "bgTop"
+   192→    )
+   193→    val animatedMid by animateColorAsState(
+   194→        targetValue = palette.primary.copy(alpha = 0.08f),
+   195→        animationSpec = tween(800), label = "bgMid"
+   196→    )
+   197→    val animatedBottom by animateColorAsState(
+   198→        targetValue = Color(0xFF05050A),  // near-black at the bottom
+   199→        animationSpec = tween(800), label = "bgBottom"
+   200→    )
+   201→
+   202→    // Dark text colors (always white on the dark gradient)
+   203→    val textPrimary = Color.White
+   204→    val textSecondary = Color.White.copy(alpha = 0.6f)
+   205→
+   206→    // ─── Random seed — changes on every app launch OR pull-to-refresh ─
+   207→    // This ensures the song selection is different each time the user
+   208→    // opens the app OR pulls to refresh the Quick Picks page.
+   209→    // Keyed on refreshKey so bumping it (via PTR) rolls a new seed,
+   210→    // which cascades into heroSongs / recentSongs / moreSongs below.
+   211→    var refreshKey by remember { mutableIntStateOf(0) }
+   212→    val launchSeed = remember(refreshKey) { Random.nextInt() }
+   213→
+   214→    // ─── Pull-to-refresh state ───────────────────────────────────────
+   215→    // Pulling down on this page refreshes the Quick Picks content
+   216→    // (rolls a new launchSeed → new random song selections, same
+   217→    // effect as tab-switching away and back).
+   218→    //
+   219→    // The default Material3 circular arrow indicator is suppressed
+   220→    // (indicator = {} on PullToRefreshBox). Instead, a custom
+   221→    // BugLineRefreshIndicator is rendered in the Speed Dial header
+   222→    // — right next to the chevron. A bug icon crawls along a thin line
+   223→    // as the user pulls, rotating as it moves.
+   224→    val ptrState: PullToRefreshState = rememberPullToRefreshState()
+   225→    var isRefreshing by remember { mutableStateOf(false) }
+   226→    val scope = rememberCoroutineScope()
+   227→
+   228→    // ─── Prepare song groups (randomized per launch) ────────────────
+   229→    // BUG FIX: previously used remember(songs, currentSongId) which
+   230→    // didn't recompute when songs loaded async after the screen was
+   231→    // already shown. Now we key on songs.size so it recomputes when
+   232→    // songs actually arrive. Also use launchSeed for randomization so
+   233→    // the selection changes on every app open.
+   234→    val heroSongs = remember(songs.size, currentSongId, launchSeed) {
+   235→        if (songs.isEmpty()) emptyList()
+   236→        else {
+   237→            val current = songs.firstOrNull { it.id == currentSongId }
+   238→            val pool = songs.shuffled(Random(launchSeed))
+   239→            if (current != null) {
+   240→                listOf(current, pool.firstOrNull { it.id != current.id } ?: songs.first())
+   241→            } else {
+   242→                pool.take(2)
+   243→            }
+   244→        }
+   245→    }
+   246→    val recentSongs = remember(songs.size) {
+   247→        if (songs.isEmpty()) emptyList()
+   248→        else {
+   249→            // 50 most-recently-ADDED songs (newest first). dateAdded is
+   250→            // Unix epoch seconds from MediaStore.Audio.Media.DATE_ADDED.
+   251→            // Falls back to original insertion order if all dateAdded are 0
+   252→            // (cache saved before this field existed -- sort is then a no-op).
+   253→            songs.sortedByDescending { it.dateAdded }.take(50)
+   254→        }
+   255→    }
+   256→    val moreSongs = remember(songs.size, launchSeed) {
+   257→        if (songs.isEmpty()) emptyList()
+   258→        else songs.shuffled(Random(launchSeed + 2)).take(50)
+   259→    }
+   260→
+   261→    // Recent and More rows now have 50 unique songs each -- no need to
+   262→    // infinitely repeat the same 10 songs 3x. The LazyRow scrolls through
+   263→    // 50 distinct items directly. Kept the variable names for compat with
+   264→    // the LazyRow items() calls below.
+   265→    val infiniteRecent = recentSongs
+   266→    val infiniteMore = moreSongs
+   267→
+   268→    // Solid dark base — the gradient's low-alpha palette colors composite
+   269→    // over this, so the background is always predominantly dark/black
+   270→    // EXCEPT in the top zone where the vibrant colors are opaque enough
+   271→    // to fully cover the darkBase.
+   272→    val darkBase = Color(0xFF05050A)
+   273→
+   274→    PullToRefreshBox(
+   275→        isRefreshing = isRefreshing,
+   276→        onRefresh = {
+   277→            // Refresh the Quick Picks page: bump refreshKey, which rolls
+   278→            // a new launchSeed → new heroSongs/recentSongs/moreSongs
+   279→            // selections.
+   280→            isRefreshing = true
+   281→            refreshKey++
+   282→            scope.launch {
+   283→                delay(900)
+   284→                isRefreshing = false
+   285→            }
+   286→        },
+   287→        state = ptrState,
+   288→        modifier = Modifier
+   289→            .fillMaxSize()
+   290→            .background(darkBase)
+   291→            .background(
+   292→                // Single dominant color → dark gradient, buttery smooth.
+   293→                // 8 stops total — closely spaced for a continuous fade
+   294→                // with no visible banding or hard transitions.
+   295→                //   0.00  vibrant (0.85)   — behind blur header
+   296→                //   0.10  fade1  (0.65)   ┐
+   297→                //   0.15  fade2  (0.45)   │ transition zone (buttery)
+   298→                //   0.20  fade3  (0.28)   ┘
+   299→                //   0.30  top    (0.18)   — dark gradient kicks in
+   300→                //   0.55  mid    (0.08)
+   301→                //   1.00  bottom (black)
+   302→                Brush.verticalGradient(
+   303→                    colorStops = arrayOf(
+   304→                        0.0f  to vibrantTop,
+   305→                        0.10f to fade1,
+   306→                        0.15f to fade2,
+   307→                        0.20f to fade3,
+   308→                        0.30f to animatedTop,
+   309→                        0.55f to animatedMid,
+   310→                        1.0f  to animatedBottom
+   311→                    )
+   312→                )
+   313→            ),
+   314→        // Suppress the default Material3 circular arrow indicator — we
+   315→        // use our custom BugLineRefreshIndicator in the Speed Dial header
+   316→        // instead (positioned right next to the chevron).
+   317→        indicator = {}
+   318→    ) {
+   319→        LazyColumn(
+   320→            modifier = Modifier
+   321→                .fillMaxSize(),
+   322→            contentPadding = PaddingValues(
+   323→                top = 108.dp,      // just below where the blur ends
+   324→                bottom = 200.dp,
+   325→                start = 20.dp,
+   326→                end = 20.dp
+   327→            ),
+   328→            verticalArrangement = Arrangement.spacedBy(6.dp)
+   329→        ) {
+   330→            // ═══ Greeting + Mood ═══
+   331→            item {
+   332→                GreetingMoodHeader(
+   333→                    textPrimary = textPrimary,
+   334→                    textSecondary = textSecondary,
+   335→                    modifier = Modifier.padding(bottom = 6.dp),
+   336→                    isPlaying = isPlaying
+   337→                )
+   338→            }
+   339→
+   340→            // ═══ Today's Top — Instagram-story style capsules ═══
+   341→            // 3 capsule stories with album covers + gradient borders.
+   342→            // Tap a COVER inside a capsule → opens the floating
+   343→            // miniplayer-style TodaysTopCard for that specific song.
+   344→            item {
+   345→                TodaysTopSection(
+   346→                    songs = songs,
+   347→                    textPrimary = textPrimary,
+   348→                    textSecondary = textSecondary,
+   349→                    onCapsuleClick = onCapsuleClick
+   350→                )
+   351→            }
+   352→
+   353→            // ═══ Speed Dial (first row) ═══
+   354→            // A paginated grid of square song cards + a "randomize" dice
+   355→            // button as the last slot. Tap a card to play that song.
+   356→            // Tap the dice → plays a random song.
+   357→            // The hero grid (EditorialCard row) has been removed — the
+   358→            // Speed Dial is now the first row on Quick Picks.
+   359→            item {
+   360→                SpeedDialSection(
+   361→                    songs = songs,
+   362→                    currentSongId = currentSongId,
+   363→                    onSongClick = onSongClick,
+   364→                    textPrimary = textPrimary,
+   365→                    textSecondary = textSecondary,
+   366→                    launchSeed = launchSeed,
+   367→                    pullProgress = ptrState.distanceFraction,
+   368→                    isRefreshing = isRefreshing,
+   369→                    onSpeedDialHeaderClick = onSpeedDialHeaderClick,
+   370→                    glassHazeState = glassHazeState,
+   371→                    glassStyle = glassStyle
+   372→                )
+   373→            }
+   374→
+   375→            // ═══ Recent ═══
+   376→            item {
+   377→                SectionHeader(
+   378→                    title = "Recent",
+   379→                    count = recentSongs.size,
+   380→                    textPrimary = textPrimary,
+   381→                    textSecondary = textSecondary
+   382→                )
+   383→            }
+   384→            item {
+   385→                LazyRow(
+   386→                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+   387→                    contentPadding = PaddingValues(horizontal = 0.dp)
+   388→                ) {
+   389→                    itemsIndexed(
+   390→                        items = infiniteRecent,
+   391→                        // Stable key = song id + occurrence index, so each
+   392→                        // repeated copy of a song has a unique key. Without
+   393→                        // a key, LazyRow recomposes ALL items on every
+   394→                        // songs update instead of reusing existing ones.
+   395→                        key = { index, song -> "${song.id}_$index" }
+   396→                    ) { _, song ->
+   397→                        SquareCard(
+   398→                            song = song,
+   399→                            isCurrent = song.id == currentSongId,
+   400→                            onClick = { onSongClick(song) },
+   401→                            modifier = Modifier
+   402→                                .width(140.dp)
+   403→                                .height(200.dp)
+   404→                        )
+   405→                    }
+   406→                }
+   407→            }
+   408→
+   409→            // ═══ More ═══
+   410→            item {
+   411→                SectionHeader(
+   412→                    title = "More picks",
+   413→                    count = moreSongs.size,
+   414→                    textPrimary = textPrimary,
+   415→                    textSecondary = textSecondary
+   416→                )
+   417→            }
+   418→            item {
+   419→                LazyRow(
+   420→                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+   421→                    contentPadding = PaddingValues(horizontal = 0.dp)
+   422→                ) {
+   423→                    itemsIndexed(
+   424→                        items = infiniteMore,
+   425→                        key = { index, song -> "${song.id}_$index" }
+   426→                    ) { _, song ->
+   427→                        LandscapeCard(
+   428→                            song = song,
+   429→                            isCurrent = song.id == currentSongId,
+   430→                            onClick = { onSongClick(song) },
+   431→                            modifier = Modifier
+   432→                                .width(160.dp)
+   433→                                .height(220.dp)
+   434→                        )
+   435→                    }
+   436→                }
+   437→            }
+   438→        }
+   439→
+   440→    }
+   441→}
+   442→
+   443→// ════════════════════════════════════════════════════════════════════
+   444→// EDITORIAL CARD
+   445→// ════════════════════════════════════════════════════════════════════
+   446→
+   447→@Composable
+   448→private fun EditorialCard(
+   449→    song: Song,
+   450→    isCurrent: Boolean,
+   451→    onClick: () -> Unit,
+   452→    modifier: Modifier = Modifier
+   453→) {
+   454→    val cardShape = RoundedCornerShape(24.dp)
+   455→    Box(
+   456→        modifier = modifier
+   457→            .shadow(
+   458→                elevation = 8.dp,
+   459→                shape = cardShape,
+   460→                clip = false
+   461→            )
+   462→            .clip(cardShape)
+   463→            .clickable(
+   464→                interactionSource = remember { MutableInteractionSource() },
+   465→                indication = null,
+   466→                onClick = onClick
+   467→            )
+   468→    ) {
+   469→        // ═══ Spiral 2.0-style album art blur-blend ═══
+   470→        //
+   471→        // Layer 1 (bottom): BLURRED album art — fills the entire card.
+   472→        // This is the "down" part. Heavy blur so it's just soft colors.
+   473→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+   474→            AsyncImage(
+   475→                model = com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri),
+   476→                contentDescription = null,
+   477→                contentScale = ContentScale.Crop,
+   478→                modifier = Modifier
+   479→                    .fillMaxSize()
+   480→                    .blur(48.dp)
+   481→            )
+   482→        } else {
+   483→            Box(
+   484→                modifier = Modifier
+   485→                    .fillMaxSize()
+   486→                    .background(Color(0xFF3A3A3C)),
+   487→                contentAlignment = Alignment.Center
+   488→            ) {
+   489→                Icon(
+   490→                    imageVector = CoralIcons.Music,
+   491→                    contentDescription = null,
+   492→                    tint = Color.White.copy(alpha = 0.5f),
+   493→                    modifier = Modifier.size(32.dp)
+   494→                )
+   495→            }
+   496→        }
+   497→
+   498→        // Layer 2 (top): SHARP album art — covers the top ~75% of the card.
+   499→        // A DstIn gradient at its bottom edge dissolves the sharp image
+   500→        // into the blurred layer behind it (the "blend point").
+   501→        // Smaller blend height = less gap, more of the sharp cover shows.
+   502→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+   503→            Box(
+   504→                modifier = Modifier
+   505→                    .fillMaxWidth()
+   506→                    .fillMaxHeight(0.75f)
+   507→                    .align(Alignment.TopCenter)
+   508→                    .graphicsLayer {
+   509→                        compositingStrategy = CompositingStrategy.Offscreen
+   510→                    }
+   511→                    .drawWithContent {
+   512→                        drawContent()
+   513→                        // DstIn mask: opaque at top → transparent at bottom.
+   514→                        // Smaller blend height (40dp) for a tighter blend.
+   515→                        val blendHeightPx = 40.dp.toPx()
+   516→                        val imageHeight = size.height
+   517→                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+   518→                        drawRect(
+   519→                            brush = Brush.verticalGradient(
+   520→                                colors = listOf(Color.Black, Color.Transparent),
+   521→                                startY = blendStartY,
+   522→                                endY = imageHeight
+   523→                            ),
+   524→                            blendMode = BlendMode.DstIn
+   525→                        )
+   526→                    }
+   527→            ) {
+   528→                AsyncImage(
+   529→                    model = com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri),
+   530→                    contentDescription = null,
+   531→                    contentScale = ContentScale.Crop,
+   532→                    modifier = Modifier.fillMaxSize()
+   533→                )
+   534→            }
+   535→        }
+   536→
+   537→        // Layer 3: (border removed per user request)
+   538→
+   539→        if (isCurrent) {
+   540→            Box(
+   541→                modifier = Modifier
+   542→                    .padding(12.dp)
+   543→                    .clip(RoundedCornerShape(8.dp))
+   544→                    .background(Color.White.copy(alpha = 0.25f))
+   545→                    .padding(horizontal = 8.dp, vertical = 4.dp)
+   546→            ) {
+   547→                Text(
+   548→                    text = "NOW",
+   549→                    color = Color.White,
+   550→                    fontSize = 10.sp,
+   551→                    fontWeight = FontWeight.Bold,
+   552→                    fontFamily = CalSansFamily
+   553→                )
+   554→            }
+   555→        }
+   556→
+   557→        // Text sits on top of the blurred bottom part
+   558→        Column(
+   559→            modifier = Modifier
+   560→                .align(Alignment.BottomStart)
+   561→                .padding(14.dp)
+   562→        ) {
+   563→            Text(
+   564→                text = song.title,
+   565→                color = Color.White,
+   566→                fontSize = 17.sp,
+   567→                fontWeight = FontWeight.SemiBold,
+   568→                fontFamily = CalSansFamily,
+   569→                maxLines = 1,
+   570→                overflow = TextOverflow.Ellipsis
+   571→            )
+   572→            Text(
+   573→                text = song.artist,
+   574→                color = Color.White.copy(alpha = 0.7f),
+   575→                fontSize = 12.sp,
+   576→                fontFamily = CalSansFamily,
+   577→                maxLines = 1,
+   578→                overflow = TextOverflow.Ellipsis
+   579→            )
+   580→        }
+   581→    }
+   582→}
+   583→
+   584→// ════════════════════════════════════════════════════════════════════
+   585→// SQUARE CARD
+   586→// ════════════════════════════════════════════════════════════════════
+   587→
+   588→@Composable
+   589→private fun SquareCard(
+   590→    song: Song,
+   591→    isCurrent: Boolean,
+   592→    onClick: () -> Unit,
+   593→    modifier: Modifier = Modifier
+   594→) {
+   595→    val context = LocalContext.current
+   596→    val cardShape = RoundedCornerShape(14.dp)
+   597→    Box(
+   598→        modifier = modifier
+   599→            .shadow(
+   600→                elevation = 6.dp,
+   601→                shape = cardShape,
+   602→                clip = false
+   603→            )
+   604→            .clip(cardShape)
+   605→            .clickable(
+   606→                interactionSource = remember { MutableInteractionSource() },
+   607→                indication = null,
+   608→                onClick = onClick
+   609→            )
+   610→    ) {
+   611→        // ═══ Spiral 2.0-style album art blur-blend ═══
+   612→        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+   613→        // BlurTransformation (cached in memory) for smooth scrolling.
+   614→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+   615→            val blurredRequest = remember(com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri)) {
+   616→                ImageRequest.Builder(context)
+   617→                    .data(com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri))
+   618→                    .transformations(BlurTransformation(36.dp))
+   619→                    .build()
+   620→            }
+   621→            AsyncImage(
+   622→                model = blurredRequest,
+   623→                contentDescription = null,
+   624→                contentScale = ContentScale.Crop,
+   625→                modifier = Modifier.fillMaxSize()
+   626→            )
+   627→        } else {
+   628→            Box(
+   629→                modifier = Modifier
+   630→                    .fillMaxSize()
+   631→                    .background(Color(0xFF3A3A3C)),
+   632→                contentAlignment = Alignment.Center
+   633→            ) {
+   634→                Icon(
+   635→                    imageVector = CoralIcons.Music,
+   636→                    contentDescription = null,
+   637→                    tint = Color.White.copy(alpha = 0.5f),
+   638→                    modifier = Modifier.size(28.dp)
+   639→                )
+   640→            }
+   641→        }
+   642→
+   643→        // Layer 2 (top): SHARP album art — top 75%, DstIn blend at bottom
+   644→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+   645→            Box(
+   646→                modifier = Modifier
+   647→                    .fillMaxWidth()
+   648→                    .fillMaxHeight(0.75f)
+   649→                    .align(Alignment.TopCenter)
+   650→                    .graphicsLayer {
+   651→                        compositingStrategy = CompositingStrategy.Offscreen
+   652→                    }
+   653→                    .drawWithContent {
+   654→                        drawContent()
+   655→                        val blendHeightPx = 30.dp.toPx()
+   656→                        val imageHeight = size.height
+   657→                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+   658→                        drawRect(
+   659→                            brush = Brush.verticalGradient(
+   660→                                colors = listOf(Color.Black, Color.Transparent),
+   661→                                startY = blendStartY,
+   662→                                endY = imageHeight
+   663→                            ),
+   664→                            blendMode = BlendMode.DstIn
+   665→                        )
+   666→                    }
+   667→            ) {
+   668→                AsyncImage(
+   669→                    model = com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri),
+   670→                    contentDescription = null,
+   671→                    contentScale = ContentScale.Crop,
+   672→                    modifier = Modifier.fillMaxSize()
+   673→                )
+   674→            }
+   675→        }
+   676→
+   677→        // Layer 3: (border removed per user request)
+   678→
+   679→        // Text on the blurred bottom part
+   680→        Column(
+   681→            modifier = Modifier
+   682→                .align(Alignment.BottomStart)
+   683→                .padding(8.dp)
+   684→        ) {
+   685→            Text(
+   686→                text = song.title,
+   687→                color = Color.White,
+   688→                fontSize = 14.sp,
+   689→                fontWeight = FontWeight.Medium,
+   690→                fontFamily = CalSansFamily,
+   691→                maxLines = 1,
+   692→                overflow = TextOverflow.Ellipsis
+   693→            )
+   694→            Text(
+   695→                text = song.artist,
+   696→                color = Color.White.copy(alpha = 0.6f),
+   697→                fontSize = 12.sp,
+   698→                fontFamily = CalSansFamily,
+   699→                maxLines = 1,
+   700→                overflow = TextOverflow.Ellipsis
+   701→            )
+   702→        }
+   703→
+   704→        if (isCurrent) {
+   705→            Box(
+   706→                modifier = Modifier
+   707→                    .padding(8.dp)
+   708→                    .size(8.dp)
+   709→                    .align(Alignment.TopEnd)
+   710→                    .clip(RoundedCornerShape(4.dp))
+   711→                    .background(Color(0xFF007AFF))
+   712→            )
+   713→        }
+   714→    }
+   715→}
+   716→
+   717→// ════════════════════════════════════════════════════════════════════
+   718→// LANDSCAPE CARD
+   719→// ════════════════════════════════════════════════════════════════════
+   720→
+   721→@Composable
+   722→private fun LandscapeCard(
+   723→    song: Song,
+   724→    isCurrent: Boolean,
+   725→    onClick: () -> Unit,
+   726→    modifier: Modifier = Modifier
+   727→) {
+   728→    val context = LocalContext.current
+   729→    val cardShape = RoundedCornerShape(14.dp)
+   730→    Box(
+   731→        modifier = modifier
+   732→            .shadow(
+   733→                elevation = 6.dp,
+   734→                shape = cardShape,
+   735→                clip = false
+   736→            )
+   737→            .clip(cardShape)
+   738→            .clickable(
+   739→                interactionSource = remember { MutableInteractionSource() },
+   740→                indication = null,
+   741→                onClick = onClick
+   742→            )
+   743→    ) {
+   744→        // ═══ Spiral 2.0-style album art blur-blend ═══
+   745→        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+   746→        // BlurTransformation (cached in memory) for smooth scrolling.
+   747→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+   748→            val blurredRequest = remember(com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri)) {
+   749→                ImageRequest.Builder(context)
+   750→                    .data(com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri))
+   751→                    .transformations(BlurTransformation(36.dp))
+   752→                    .build()
+   753→            }
+   754→            AsyncImage(
+   755→                model = blurredRequest,
+   756→                contentDescription = null,
+   757→                contentScale = ContentScale.Crop,
+   758→                modifier = Modifier.fillMaxSize()
+   759→            )
+   760→        } else {
+   761→            Box(
+   762→                modifier = Modifier
+   763→                    .fillMaxSize()
+   764→                    .background(Color(0xFF3A3A3C)),
+   765→                contentAlignment = Alignment.Center
+   766→            ) {
+   767→                Icon(
+   768→                    imageVector = CoralIcons.Music,
+   769→                    contentDescription = null,
+   770→                    tint = Color.White.copy(alpha = 0.5f),
+   771→                    modifier = Modifier.size(32.dp)
+   772→                )
+   773→            }
+   774→        }
+   775→
+   776→        // Layer 2 (top): SHARP album art — top 75%, DstIn blend at bottom
+   777→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+   778→            Box(
+   779→                modifier = Modifier
+   780→                    .fillMaxWidth()
+   781→                    .fillMaxHeight(0.75f)
+   782→                    .align(Alignment.TopCenter)
+   783→                    .graphicsLayer {
+   784→                        compositingStrategy = CompositingStrategy.Offscreen
+   785→                    }
+   786→                    .drawWithContent {
+   787→                        drawContent()
+   788→                        val blendHeightPx = 30.dp.toPx()
+   789→                        val imageHeight = size.height
+   790→                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+   791→                        drawRect(
+   792→                            brush = Brush.verticalGradient(
+   793→                                colors = listOf(Color.Black, Color.Transparent),
+   794→                                startY = blendStartY,
+   795→                                endY = imageHeight
+   796→                            ),
+   797→                            blendMode = BlendMode.DstIn
+   798→                        )
+   799→                    }
+   800→            ) {
+   801→                AsyncImage(
+   802→                    model = com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri),
+   803→                    contentDescription = null,
+   804→                    contentScale = ContentScale.Crop,
+   805→                    modifier = Modifier.fillMaxSize()
+   806→                )
+   807→            }
+   808→        }
+   809→
+   810→        // Layer 3: (border removed per user request)
+   811→
+   812→        // Text on the blurred bottom part
+   813→        Column(
+   814→            modifier = Modifier
+   815→                .align(Alignment.BottomStart)
+   816→                .padding(10.dp)
+   817→        ) {
+   818→            Text(
+   819→                text = song.title,
+   820→                color = Color.White,
+   821→                fontSize = 16.sp,
+   822→                fontWeight = FontWeight.SemiBold,
+   823→                fontFamily = CalSansFamily,
+   824→                maxLines = 1,
+   825→                overflow = TextOverflow.Ellipsis
+   826→            )
+   827→            Text(
+   828→                text = song.artist,
+   829→                color = Color.White.copy(alpha = 0.7f),
+   830→                fontSize = 13.sp,
+   831→                fontFamily = CalSansFamily,
+   832→                maxLines = 1,
+   833→                overflow = TextOverflow.Ellipsis
+   834→            )
+   835→        }
+   836→    }
+   837→}
+   838→
+   839→
+   840→// ════════════════════════════════════════════════════════════════════
+   841→// SPEED DIAL SECTION
+   842→// ════════════════════════════════════════════════════════════════════
+   843→// A paginated grid of square song cards + a "randomize" dice button.
+   844→// Based on vivi-music's SpeedDial feature:
+   845→//   - HorizontalPager with pages of a 3-column grid
+   846→//   - Each page shows up to 9 songs (3x3)
+   847→//   - The last slot on the first page is a "randomize" dice button
+   848→//   - Tap a song card → plays that song
+   849→//   - Tap the dice → picks a random song and plays it
+   850→// ════════════════════════════════════════════════════════════════════
+   851→
+   852→@Composable
+   853→private fun SpeedDialSection(
+   854→    songs: List<Song>,
+   855→    currentSongId: Long?,
+   856→    onSongClick: (Song) -> Unit,
+   857→    textPrimary: Color,
+   858→    textSecondary: Color,
+   859→    launchSeed: Int,
+   860→    pullProgress: Float = 0f,
+   861→    isRefreshing: Boolean = false,
+   862→    onSpeedDialHeaderClick: () -> Unit = {},
+   863→    glassHazeState: dev.chrisbanes.haze.HazeState? = null,
+   864→    glassStyle: dev.chrisbanes.haze.HazeStyle? = null
+   865→) {
+   866→    val scope = rememberCoroutineScope()
+   867→    var isRandomizing by remember { mutableStateOf(false) }
+   868→
+   869→    // Observe pinned song IDs so cards re-render when a song is pinned/unpinned.
+   870→    val pinnedIds by com.rajatxo.coral.data.prefs.SpeedDialPinStore.pinnedIds.collectAsState()
+   871→
+   872→    // ─── Build the Speed Dial song list ──
+   873→    //
+   874→    // Two modes (user-selectable via the "Based on" capsule popup):
+   875→    //   - RANDOM      — completely random songs (original behavior)
+   876→    //   - LAST_PLAYED — 80% songs from the last-played artist + 20% other.
+   877→    //                   Falls back to RANDOM if no playback history exists.
+   878→    //
+   879→    // Pinned songs come FIRST (in the order they were pinned — Set preserves
+   880→    // insertion order for LinkedHashSet, which is what SharedPreferences
+   881→    // StringSet returns after our save). They sit at the top-left of the
+   882→    // grid and stay there across refresh/restart.
+   883→    val speedDialMode by com.rajatxo.coral.data.prefs.SpeedDialModeManager.mode.collectAsState()
+   884→    val playbackHistory by com.rajatxo.coral.data.prefs.PlaybackHistory.history.collectAsState()
+   885→
+   886→    val speedDialSongs = remember(songs.size, pinnedIds, launchSeed, speedDialMode, playbackHistory) {
+   887→        if (songs.isEmpty()) emptyList()
+   888→        else {
+   889→            // 1. Pinned songs (in pin order), filtered to ones that still
+   890→            //    exist in the library (in case a pinned song was deleted).
+   891→            val pinnedSongs = pinnedIds.mapNotNull { id ->
+   892→                songs.firstOrNull { it.id == id }
+   893→            }
+   894→            // 2. Pool of available (non-pinned) songs.
+   895→            val pool = songs.filter { it.id !in pinnedIds }
+   896→
+   897→            // 3. Pick the songs based on the current mode.
+   898→            val targetCount = 26
+   899→            val randomCount = (targetCount - pinnedSongs.size).coerceAtLeast(0)
+   900→
+   901→            val picked: List<Song> = if (speedDialMode == com.rajatxo.coral.data.prefs.SpeedDialModeManager.SpeedDialMode.LAST_PLAYED
+   902→                && playbackHistory.isNotEmpty()) {
+   903→                // ★ LAST_PLAYED mode — 80% from last-played artist + 20% other.
+   904→                //   If the artist has fewer songs than the 80% target, the
+   905→                //   remaining slots are filled with random songs from other
+   906→                //   artists so all 3 pages (26 tiles) always show.
+   907→                val lastArtist = playbackHistory.firstOrNull()?.artist
+   908→                if (!lastArtist.isNullOrBlank()) {
+   909→                    val artistSongs = pool.filter {
+   910→                        it.artist.trim().equals(lastArtist.trim(), ignoreCase = true)
+   911→                    }.shuffled(Random(launchSeed + 100))
+   912→                    val otherSongs = pool.filter {
+   913→                        !it.artist.trim().equals(lastArtist.trim(), ignoreCase = true)
+   914→                    }.shuffled(Random(launchSeed + 200))
+   915→                    val eightyPct = (randomCount * 0.8f).toInt()
+   916→                    // Take up to eightyPct from the artist — if the artist
+   917→                    // has fewer songs, take all of them.
+   918→                    val artistPicked = artistSongs.take(eightyPct)
+   919→                    // Fill the rest of the 80% slot + the 20% slot with
+   920→                    // other songs so we always reach randomCount total.
+   921→                    val remainingNeeded = randomCount - artistPicked.size
+   922→                    artistPicked + otherSongs.take(remainingNeeded)
+   923→                } else {
+   924→                    pool.shuffled(Random(launchSeed + 100)).take(randomCount)
+   925→                }
+   926→            } else {
+   927→                // RANDOM mode — completely random (original behavior)
+   928→                pool.shuffled(Random(launchSeed + 100)).take(randomCount)
+   929→            }
+   930→            // ★ Failsafe — if even the pool is too small (e.g., tiny library),
+   931→            //   pad with whatever songs are available (with possible repeats
+   932→            //   from the pool) so all 26 tiles always fill. Without this,
+   933→            //   pages would be empty for small libraries.
+   934→            val finalPicked = if (picked.size < randomCount && pool.isNotEmpty()) {
+   935→                val stillNeeded = randomCount - picked.size
+   936→                // Cycle through the pool to fill — repeats are acceptable
+   937→                // because the user explicitly wants all pages filled.
+   938→                val fillers = pool.shuffled(Random(launchSeed + 300))
+   939→                    .filter { it.id !in picked.map(Song::id) }  // avoid dups
+   940→                    .take(stillNeeded)
+   941→                picked + fillers
+   942→            } else {
+   943→                picked
+   944→            }
+   945→            pinnedSongs + finalPicked
+   946→        }
+   947→    }
+   948→
+   949→    if (speedDialSongs.isEmpty()) return
+   950→
+   951→    // Section header — "Speed dial" text + chevron right beside it.
+   952→    // ★ Both the text AND the chevron are clickable. Tapping either opens
+   953→    //   the floating SpeedDialCard (rendered outside the layerBackdrop
+   954→    //   by the caller — same pattern as TodaysTopCard). The card lets the
+   955→    //   user swipe to switch Speed Dial mode (Random / Last Played) with
+   956→    //   haptics + sound — same UX as the nav bar's tab switcher.
+   957→    Box(
+   958→        modifier = Modifier
+   959→            .fillMaxWidth()
+   960→            .padding(start = 4.dp)  // align with first card's content
+   961→    ) {
+   962→        Row(
+   963→            modifier = Modifier.fillMaxWidth(),
+   964→            horizontalArrangement = Arrangement.spacedBy(6.dp),
+   965→            verticalAlignment = Alignment.CenterVertically
+   966→        ) {
+   967→            // ★ "Speed dial" text — tap → open SpeedDialCard
+   968→            Text(
+   969→                text = "Speed dial",
+   970→                color = textPrimary,
+   971→                fontSize = 20.sp,
+   972→                fontWeight = FontWeight.SemiBold,
+   973→                fontFamily = CalSansFamily,
+   974→                modifier = Modifier.clickable(
+   975→                    interactionSource = remember { MutableInteractionSource() },
+   976→                    indication = null,
+   977→                    onClick = onSpeedDialHeaderClick
+   978→                )
+   979→            )
+   980→            // ★ Chevron right beside the text — also tap → open SpeedDialCard
+   981→            Box(
+   982→                modifier = Modifier
+   983→                    .size(24.dp)
+   984→                    .clickable(
+   985→                        interactionSource = remember { MutableInteractionSource() },
+   986→                        indication = null,
+   987→                        onClick = onSpeedDialHeaderClick
+   988→                    ),
+   989→                contentAlignment = Alignment.Center
+   990→            ) {
+   991→                Icon(
+   992→                    imageVector = CoralIcons.ChevronRight,
+   993→                    contentDescription = "Open Speed Dial mode card",
+   994→                    tint = textSecondary,
+   995→                    modifier = Modifier.size(20.dp)
+   996→                )
+   997→            }
+   998→            // ─── Bug-on-a-line pull-to-refresh indicator ──────────────
+   999→            BugLineRefreshIndicator(
+  1000→                progress = pullProgress,
+  1001→                isRefreshing = isRefreshing,
+  1002→                modifier = Modifier
+  1003→                    .weight(1f)
+  1004→                    .height(20.dp)
+  1005→            )
+  1006→        }
+  1007→    }
+  1008→
+  1009→    Spacer(modifier = Modifier.height(6.dp))
+  1010→
+  1011→    // Grid layout: 3 columns, paginated
+  1012→    val targetItemSize = 110.dp
+  1013→    val columns = 3
+  1014→    val rows = 3
+  1015→    val itemsPerPage = columns * rows // 9 per page
+  1016→    val totalSlots = speedDialSongs.size + 1 // +1 for the dice
+  1017→    val pageCount = (totalSlots + itemsPerPage - 1) / itemsPerPage
+  1018→    val pagerState = rememberPagerState(pageCount = { pageCount.coerceAtLeast(1) })
+  1019→
+  1020→    val itemWidth = targetItemSize
+  1021→
+  1022→    Column(
+  1023→        modifier = Modifier.fillMaxWidth()
+  1024→    ) {
+  1025→        // ★ Glass morphism box wrapping ONLY the 3x3 grid (not header, not page indicator).
+  1026→        // Uses Haze (dev.chrisbanes.haze) — same library as ArchiveTune/BitChord.
+  1027→        // When glassHazeState is provided (Cynthia), uses hazeEffect for real glass.
+  1028→        // When null (Astra), renders normally without glass.
+  1029→        val gridShape = RoundedCornerShape(20.dp)
+  1030→        val gridModifier = if (glassHazeState != null && glassStyle != null) {
+  1031→            Modifier
+  1032→                .fillMaxWidth()
+  1033→                .height(itemWidth * rows + 16.dp)
+  1034→                .clip(gridShape)
+  1035→                .hazeEffect(
+  1036→                    state = glassHazeState,
+  1037→                    style = glassStyle
+  1038→                )
+  1039→                .border(1.dp, Color.White.copy(alpha = 0.1f), gridShape)
+  1040→                .padding(8.dp)
+  1041→        } else {
+  1042→            Modifier
+  1043→                .fillMaxWidth()
+  1044→                .height(itemWidth * rows + 16.dp)
+  1045→        }
+  1046→
+  1047→        HorizontalPager(
+  1048→            state = pagerState,
+  1049→            contentPadding = PaddingValues(horizontal = 0.dp),
+  1050→            pageSpacing = 12.dp,
+  1051→            beyondViewportPageCount = 1,
+  1052→            modifier = gridModifier
+  1053→        ) { page ->
+  1054→            Column(modifier = Modifier.fillMaxSize()) {
+  1055→                for (row in 0 until rows) {
+  1056→                    Row(modifier = Modifier.fillMaxWidth()) {
+  1057→                        for (col in 0 until columns) {
+  1058→                            val itemIndex = row * columns + col
+  1059→                            val globalItemIndex = page * itemsPerPage + itemIndex
+  1060→
+  1061→                            // The dice button is the last slot on the first page
+  1062→                            val isDiceSlot = (globalItemIndex == itemsPerPage - 1)
+  1063→
+  1064→                            if (isDiceSlot) {
+  1065→                                RandomizeGridItem(
+  1066→                                    isLoading = isRandomizing,
+  1067→                                    onClick = {
+  1068→                                        if (isRandomizing) {
+  1069→                                            isRandomizing = false
+  1070→                                        } else {
+  1071→                                            isRandomizing = true
+  1072→                                            scope.launch {
+  1073→                                                kotlinx.coroutines.delay(800)  // dice animation
+  1074→                                                val randomSong = songs.random()
+  1075→                                                isRandomizing = false
+  1076→                                                onSongClick(randomSong)
+  1077→                                            }
+  1078→                                        }
+  1079→                                    },
+  1080→                                    modifier = Modifier
+  1081→                                        .width(itemWidth)
+  1082→                                        .height(itemWidth)
+  1083→                                        .padding(4.dp)
+  1084→                                )
+  1085→                            } else {
+  1086→                                val actualIndex = if (globalItemIndex < itemsPerPage - 1) {
+  1087→                                    globalItemIndex
+  1088→                                } else {
+  1089→                                    globalItemIndex - 1
+  1090→                                }
+  1091→                                val song = speedDialSongs.getOrNull(actualIndex)
+  1092→                                if (song != null) {
+  1093→                                    SpeedDialCard(
+  1094→                                        song = song,
+  1095→                                        isCurrent = song.id == currentSongId,
+  1096→                                        isPinned = song.id in pinnedIds,
+  1097→                                        onClick = { onSongClick(song) },
+  1098→                                        modifier = Modifier
+  1099→                                            .width(itemWidth)
+  1100→                                            .height(itemWidth)
+  1101→                                            .padding(4.dp)
+  1102→                                    )
+  1103→                                } else {
+  1104→                                    Spacer(
+  1105→                                        modifier = Modifier
+  1106→                                            .width(itemWidth)
+  1107→                                            .height(itemWidth)
+  1108→                                            .padding(4.dp)
+  1109→                                    )
+  1110→                                }
+  1111→                            }
+  1112→                        }
+  1113→                    }
+  1114→                }
+  1115→            }
+  1116→        }
+  1117→
+  1118→        // ═══ Page indicator — REMOVED per user request ═══
+  1119→        // The 1-2-3 dot page indicator below the Speed Dial grid was
+  1120→        // removed. Content below (Recent, etc.) automatically moves up.
+  1121→    }
+  1122→}
+  1123→
+  1124→// ════════════════════════════════════════════════════════════════════
+  1125→// LINE WITH DOT PAGE INDICATOR — thin line, faded ends, center dot with page number
+  1126→// ════════════════════════════════════════════════════════════════════
+  1127→// A horizontal line with:
+  1128→//   • Both ends fading to transparent (via a horizontal gradient mask)
+  1129→//   • A white filled circle centered on the line
+  1130→//   • The current page number (1-indexed) drawn inside the circle
+  1131→//
+  1132→// The line is 80dp wide × 2dp tall. The dot is 18dp diameter.
+  1133→// The dot sits centered on the line, vertically aligned.
+  1134→//
+  1135→// All drawn on a single Canvas with a Text overlay for the page number.
+  1136→// ════════════════════════════════════════════════════════════════════
+  1137→
+  1138→@Composable
+  1139→private fun LineWithDotPageIndicator(
+  1140→    pagerState: androidx.compose.foundation.pager.PagerState,
+  1141→    modifier: Modifier = Modifier
+  1142→) {
+  1143→    val pageCount = pagerState.pageCount
+  1144→    if (pageCount <= 1) return
+  1145→
+  1146→    // +1 because currentPage is 0-indexed, but we display 1-indexed.
+  1147→    val currentPageDisplay = (pagerState.currentPage + 1).coerceIn(1, pageCount)
+  1148→
+  1149→    Box(
+  1150→        modifier = modifier
+  1151→            .width(80.dp)
+  1152→            .height(20.dp),
+  1153→        contentAlignment = Alignment.Center
+  1154→    ) {
+  1155→        // ─── The line + dot, drawn on a Canvas ───
+  1156→        Canvas(
+  1157→            modifier = Modifier
+  1158→                .fillMaxSize()
+  1159→                // Offscreen layer is required for BlendMode.DstIn to work —
+  1160→                // without it, the edge-fade mask would punch through the
+  1161→                // entire screen instead of just fading the line's ends.
+  1162→                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+  1163→        ) {
+  1164→            val canvasWidth = size.width
+  1165→            val canvasHeight = size.height
+  1166→            val centerY = canvasHeight / 2f
+  1167→
+  1168→            // ─── (1) Thin horizontal line ───
+  1169→            val lineHeight = 2f  // thin
+  1170→            val lineLeft = 0f
+  1171→            val lineRight = canvasWidth
+  1172→
+  1173→            // The line itself — a subtle white.
+  1174→            drawRoundRect(
+  1175→                color = Color.White.copy(alpha = 0.6f),
+  1176→                topLeft = androidx.compose.ui.geometry.Offset(lineLeft, centerY - lineHeight / 2f),
+  1177→                size = androidx.compose.ui.geometry.Size(lineRight - lineLeft, lineHeight),
+  1178→                cornerRadius = androidx.compose.ui.geometry.CornerRadius(lineHeight / 2f, lineHeight / 2f)
+  1179→            )
+  1180→
+  1181→            // ─── (2) Fade the line's ends to transparent ───
+  1182→            // Draw a horizontal-gradient mask: opaque (Color.Black) in the
+  1183→            // middle 60%, fading to transparent at both ends (0-20% and
+  1184→            // 80-100%). BlendMode.DstIn keeps the line where the mask is
+  1185→            // opaque and erases it where the mask is transparent.
+  1186→            //
+  1187→            // The dot (drawn next) is NOT affected by this mask because
+  1188→            // it's drawn AFTER the mask — DstIn only affects what's
+  1189→            // already in the layer at draw time.
+  1190→            val lineFadeBrush = Brush.horizontalGradient(
+  1191→                colorStops = arrayOf(
+  1192→                    0.00f to Color.Transparent,
+  1193→                    0.20f to Color.Black,
+  1194→                    0.80f to Color.Black,
+  1195→                    1.00f to Color.Transparent
+  1196→                )
+  1197→            )
+  1198→            drawRect(
+  1199→                brush = lineFadeBrush,
+  1200→                topLeft = androidx.compose.ui.geometry.Offset.Zero,
+  1201→                size = size,
+  1202→                blendMode = BlendMode.DstIn
+  1203→            )
+  1204→
+  1205→            // ─── (3) The white dot (circle) in the center ───
+  1206→            // Drawn AFTER the fade mask so it's fully opaque (not faded).
+  1207→            val dotDiameter = 18.dp.toPx()
+  1208→            val dotRadius = dotDiameter / 2f
+  1209→            val dotCenterX = canvasWidth / 2f
+  1210→            val dotCenterY = centerY
+  1211→
+  1212→            // White filled circle.
+  1213→            drawCircle(
+  1214→                color = Color.White,
+  1215→                radius = dotRadius,
+  1216→                center = androidx.compose.ui.geometry.Offset(dotCenterX, dotCenterY)
+  1217→            )
+  1218→        }
+  1219→
+  1220→        // ─── The page number text, centered on the dot ───
+  1221→        // Drawn on top of the Canvas, centered via the Box's contentAlignment.
+  1222→        Text(
+  1223→            text = "$currentPageDisplay",
+  1224→            color = Color.Black,
+  1225→            fontSize = 10.sp,
+  1226→            fontWeight = FontWeight.Bold,
+  1227→            fontFamily = CalSansFamily,
+  1228→            modifier = Modifier.align(Alignment.Center)
+  1229→        )
+  1230→    }
+  1231→}
+  1232→
+  1233→// ════════════════════════════════════════════════════════════════════
+  1234→// LIQUID BAR PAGE INDICATOR — REMOVED (replaced by LineWithDotPageIndicator)
+  1235→// ════════════════════════════════════════════════════════════════════
+  1236→// The old LiquidBarPageIndicator (animated gradient bars) was replaced
+  1237→// per user request with the simpler LineWithDotPageIndicator above.
+  1238→// The old code is intentionally removed — not commented out — to keep
+  1239→// the file clean. The new indicator is a thin line + center dot with
+  1240→// the page number inside the dot.
+  1241→// ════════════════════════════════════════════════════════════════════
+  1242→
+  1243→@Composable
+  1244→private fun LiquidBarPageIndicatorRemoved(
+  1245→    pagerState: androidx.compose.foundation.pager.PagerState,
+  1246→    modifier: Modifier = Modifier
+  1247→) {
+  1248→    // Intentionally empty — kept as a marker so git history shows the
+  1249→    // removal cleanly. Use LineWithDotPageIndicator instead.
+  1250→}
+  1251→
+  1252→// ════════════════════════════════════════════════════════════════════
+  1253→// SPEED DIAL CARD — square card with album art + title
+  1254→// ════════════════════════════════════════════════════════════════════
+  1255→
+  1256→@Composable
+  1257→private fun SpeedDialCard(
+  1258→    song: Song,
+  1259→    isCurrent: Boolean,
+  1260→    isPinned: Boolean,
+  1261→    onClick: () -> Unit,
+  1262→    modifier: Modifier = Modifier
+  1263→) {
+  1264→    val context = LocalContext.current
+  1265→    val cardShape = RoundedCornerShape(8.dp)
+  1266→
+  1267→    // ─── Quick tap animation ──
+  1268→    // Scale down while pressed, spring back on release. Only this card
+  1269→    // animates — no effect on other cards.
+  1270→    val interactionSource = remember { MutableInteractionSource() }
+  1271→    val isPressed by interactionSource.collectIsPressedAsState()
+  1272→    val scale by animateFloatAsState(
+  1273→        targetValue = if (isPressed) 0.92f else 1.0f,
+  1274→        animationSpec = spring(dampingRatio = 0.55f, stiffness = 800f),
+  1275→        label = "tapScale"
+  1276→    )
+  1277→
+  1278→    // ─── Long-press pin capsule state ──
+  1279→    var showPinCapsule by remember { mutableStateOf(false) }
+  1280→
+  1281→    Box(
+  1282→        modifier = modifier
+  1283→            .scale(scale)
+  1284→            .shadow(
+  1285→                elevation = 4.dp,
+  1286→                shape = cardShape,
+  1287→                clip = false
+  1288→            )
+  1289→            .clip(cardShape)
+  1290→            .combinedClickable(
+  1291→                interactionSource = interactionSource,
+  1292→                indication = null,
+  1293→                onClick = onClick,
+  1294→                onLongClick = { showPinCapsule = true }
+  1295→            )
+  1296→    ) {
+  1297→        // ═══ Spiral 2.0-style album art blur-blend ═══
+  1298→        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+  1299→        // BlurTransformation (cached in memory) for smooth scrolling.
+  1300→        // Reduced blur (20dp, was 36dp) so the cover isn't cropped too much.
+  1301→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+  1302→            val blurredRequest = remember(com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri)) {
+  1303→                ImageRequest.Builder(context)
+  1304→                    .data(com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri))
+  1305→                    .transformations(BlurTransformation(20.dp))
+  1306→                    .build()
+  1307→            }
+  1308→            AsyncImage(
+  1309→                model = blurredRequest,
+  1310→                contentDescription = null,
+  1311→                contentScale = ContentScale.Crop,
+  1312→                modifier = Modifier.fillMaxSize()
+  1313→            )
+  1314→        } else {
+  1315→            Box(
+  1316→                modifier = Modifier
+  1317→                    .fillMaxSize()
+  1318→                    .background(Color(0xFF3A3A3C)),
+  1319→                contentAlignment = Alignment.Center
+  1320→            ) {
+  1321→                Icon(
+  1322→                    imageVector = CoralIcons.Music,
+  1323→                    contentDescription = null,
+  1324→                    tint = Color.White.copy(alpha = 0.5f),
+  1325→                    modifier = Modifier.size(24.dp)
+  1326→                )
+  1327→            }
+  1328→        }
+  1329→
+  1330→        // Layer 2 (top): SHARP album art — top 85%, DstIn blend at bottom.
+  1331→        // The blend is only behind the text area (bottom 15%).
+  1332→        if (com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri) != null) {
+  1333→            Box(
+  1334→                modifier = Modifier
+  1335→                    .fillMaxWidth()
+  1336→                    .fillMaxHeight(0.85f)
+  1337→                    .align(Alignment.TopCenter)
+  1338→                    .graphicsLayer {
+  1339→                        compositingStrategy = CompositingStrategy.Offscreen
+  1340→                    }
+  1341→                    .drawWithContent {
+  1342→                        drawContent()
+  1343→                        val blendHeightPx = 24.dp.toPx()
+  1344→                        val imageHeight = size.height
+  1345→                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+  1346→                        drawRect(
+  1347→                            brush = Brush.verticalGradient(
+  1348→                                colors = listOf(Color.Black, Color.Transparent),
+  1349→                                startY = blendStartY,
+  1350→                                endY = imageHeight
+  1351→                            ),
+  1352→                            blendMode = BlendMode.DstIn
+  1353→                        )
+  1354→                    }
+  1355→            ) {
+  1356→                AsyncImage(
+  1357→                    model = com.rajatxo.coral.util.SongCoverManager.getEffectiveCover(song.id, song.albumArtUri),
+  1358→                    contentDescription = null,
+  1359→                    contentScale = ContentScale.Crop,
+  1360→                    modifier = Modifier.fillMaxSize()
+  1361→                )
+  1362→            }
+  1363→        }
+  1364→
+  1365→        // (border removed per user request)
+  1366→
+  1367→        // Title at the bottom (on the blurred part)
+  1368→        Text(
+  1369→            text = song.title,
+  1370→            color = Color.White,
+  1371→            fontSize = 12.sp,
+  1372→            fontWeight = FontWeight.Medium,
+  1373→            fontFamily = CalSansFamily,
+  1374→            maxLines = 1,
+  1375→            overflow = TextOverflow.Ellipsis,
+  1376→            modifier = Modifier
+  1377→                .align(Alignment.BottomStart)
+  1378→                .padding(start = 8.dp, bottom = 4.dp)
+  1379→        )
+  1380→
+  1381→        // Now-playing dot
+  1382→        if (isCurrent) {
+  1383→            Box(
+  1384→                modifier = Modifier
+  1385→                    .padding(6.dp)
+  1386→                    .size(6.dp)
+  1387→                    .align(Alignment.TopEnd)
+  1388→                    .clip(RoundedCornerShape(3.dp))
+  1389→                    .background(Color(0xFFFF6B6B))
+  1390→            )
+  1391→        }
+  1392→
+  1393→        // Pinned indicator (top-left, small pin icon)
+  1394→        if (isPinned) {
+  1395→            Icon(
+  1396→                imageVector = CoralIcons.Pin,
+  1397→                contentDescription = "Pinned",
+  1398→                tint = Color.White,
+  1399→                modifier = Modifier
+  1400→                    .padding(6.dp)
+  1401→                    .size(12.dp)
+  1402→                    .align(Alignment.TopStart)
+  1403→            )
+  1404→        }
+  1405→
+  1406→        // ═══ Long-press pin capsule overlay ═══
+  1407→        // Thin capsule with a pin icon, fades in on long-press, stays
+  1408→        // 5 seconds, fades out on pin or timeout.
+  1409→        SpeedDialPinCapsule(
+  1410→            visible = showPinCapsule,
+  1411→            isPinned = isPinned,
+  1412→            onPin = {
+  1413→                if (isPinned) {
+  1414→                    com.rajatxo.coral.data.prefs.SpeedDialPinStore.unpin(song.id)
+  1415→                } else {
+  1416→                    com.rajatxo.coral.data.prefs.SpeedDialPinStore.pin(song.id)
+  1417→                }
+  1418→                showPinCapsule = false
+  1419→            },
+  1420→            onTimeout = { showPinCapsule = false }
+  1421→        )
+  1422→    }
+  1423→}
+  1424→
+  1425→// ════════════════════════════════════════════════════════════════════
+  1426→// SPEED DIAL PIN CAPSULE — thin capsule with pin icon, shown on long-press
+  1427→// ════════════════════════════════════════════════════════════════════
+  1428→// Fades in when [visible] becomes true, stays for 5 seconds, then
+  1429→// calls [onTimeout]. If the user taps the pin icon, calls [onPin].
+  1430→// The capsule is a thin pill centered over the card with a semi-transparent
+  1431→// dark background and a pin icon inside.
+  1432→// ════════════════════════════════════════════════════════════════════
+  1433→
+  1434→@Composable
+  1435→private fun SpeedDialPinCapsule(
+  1436→    visible: Boolean,
+  1437→    isPinned: Boolean,
+  1438→    onPin: () -> Unit,
+  1439→    onTimeout: () -> Unit
+  1440→) {
+  1441→    // Auto-hide after 5 seconds
+  1442→    if (visible) {
+  1443→        androidx.compose.runtime.LaunchedEffect(visible) {
+  1444→            kotlinx.coroutines.delay(5000)
+  1445→            onTimeout()
+  1446→        }
+  1447→    }
+  1448→
+  1449→    androidx.compose.animation.AnimatedVisibility(
+  1450→        visible = visible,
+  1451→        enter = androidx.compose.animation.fadeIn(
+  1452→            animationSpec = tween(200)
+  1453→        ),
+  1454→        exit = androidx.compose.animation.fadeOut(
+  1455→            animationSpec = tween(300)
+  1456→        ),
+  1457→        modifier = Modifier.fillMaxSize()
+  1458→    ) {
+  1459→        // Dim the card behind the capsule + center the capsule
+  1460→        Box(
+  1461→            modifier = Modifier
+  1462→                .fillMaxSize()
+  1463→                .background(Color.Black.copy(alpha = 0.4f)),
+  1464→            contentAlignment = Alignment.Center
+  1465→        ) {
+  1466→            // Thin capsule with pin icon
+  1467→            Box(
+  1468→                modifier = Modifier
+  1469→                    .clip(RoundedCornerShape(14.dp))
+  1470→                    .background(Color.Black.copy(alpha = 0.75f))
+  1471→                    .clickable(
+  1472→                        interactionSource = remember { MutableInteractionSource() },
+  1473→                        indication = null,
+  1474→                        onClick = onPin
+  1475→                    )
+  1476→                    .padding(10.dp),
+  1477→                contentAlignment = Alignment.Center
+  1478→            ) {
+  1479→                Icon(
+  1480→                    imageVector = CoralIcons.Pin,
+  1481→                    contentDescription = if (isPinned) "Unpin" else "Pin",
+  1482→                    tint = if (isPinned) Color(0xFFFF6B6B) else Color.White,
+  1483→                    modifier = Modifier.size(20.dp)
+  1484→                )
+  1485→            }
+  1486→        }
+  1487→    }
+  1488→}
+  1489→
+  1490→// ════════════════════════════════════════════════════════════════════
+  1491→// RANDOMIZE GRID ITEM — dice button with 5-dot pattern
+  1492→// ════════════════════════════════════════════════════════════════════
+  1493→
+  1494→@Composable
+  1495→private fun RandomizeGridItem(
+  1496→    isLoading: Boolean,
+  1497→    onClick: () -> Unit,
+  1498→    modifier: Modifier = Modifier
+  1499→) {
+  1500→    // ═══ Particle burst randomize button ═══
+  1501→    // Idle: a soft glowing dot in the center, gently pulsing.
+  1502→    // On tap: 14 particles burst outward in all directions, each with a
+  1503→    // gradient color (coral red → orange → pink → gold), shrinking +
+  1504→    // fading as they fly. Lasts 600ms.
+  1505→    //
+  1506→    // The burst is triggered by isLoading going false→true (the parent
+  1507→    // SpeedDialSection sets isRandomizing=true on tap, waits 800ms,
+  1508→    // picks a random song, sets isRandomizing=false). The burst lasts
+  1509→    // 600ms — the remaining 200ms is a "settle" moment where the idle
+  1510→    // dot reappears before the song plays.
+  1511→
+  1512→    // ─── Particle data (precomputed once, stable across recompositions) ──
+  1513→    data class Particle(val angle: Double, val color: Color, val sizeMult: Float, val speedMult: Float)
+  1514→    val particles = remember {
+  1515→        val colors = listOf(
+  1516→            Color(0xFFFF6B6B),  // coral red
+  1517→            Color(0xFFFF9F40),  // orange
+  1518→            Color(0xFFFF4081),  // pink
+  1519→            Color(0xFFFFD700)   // gold
+  1520→        )
+  1521→        List(14) { i ->
+  1522→            Particle(
+  1523→                angle = (i * 360.0 / 14.0 + kotlin.random.Random.nextFloat() * 20.0) * (kotlin.math.PI / 180.0),
+  1524→                color = colors[i % colors.size],
+  1525→                sizeMult = 0.7f + kotlin.random.Random.nextFloat() * 0.6f,
+  1526→                speedMult = 0.8f + kotlin.random.Random.nextFloat() * 0.4f
+  1527→            )
+  1528→        }
+  1529→    }
+  1530→
+  1531→    // ─── Idle pulse animation (always running) ──
+  1532→    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse")
+  1533→    val pulseScale by infiniteTransition.animateFloat(
+  1534→        initialValue = 0.9f,
+  1535→        targetValue = 1.1f,
+  1536→        animationSpec = infiniteRepeatable(
+  1537→            animation = tween(1500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+  1538→            repeatMode = RepeatMode.Reverse
+  1539→        ),
+  1540→        label = "pulseScale"
+  1541→    )
+  1542→
+  1543→    // ─── Burst animation (triggered by isLoading) ──
+  1544→    val burstProgress = remember { androidx.compose.animation.core.Animatable(0f) }
+  1545→    androidx.compose.runtime.LaunchedEffect(isLoading) {
+  1546→        if (isLoading) {
+  1547→            burstProgress.snapTo(0f)
+  1548→            burstProgress.animateTo(
+  1549→                targetValue = 1f,
+  1550→                animationSpec = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+  1551→            )
+  1552→        }
+  1553→    }
+  1554→
+  1555→    Box(
+  1556→        modifier = modifier
+  1557→            .clip(RoundedCornerShape(8.dp))
+  1558→            .background(Color.White.copy(alpha = 0.08f))
+  1559→            .clickable(
+  1560→                interactionSource = remember { MutableInteractionSource() },
+  1561→                indication = null,
+  1562→                onClick = onClick
+  1563→            ),
+  1564→        contentAlignment = Alignment.Center
+  1565→    ) {
+  1566→        Canvas(modifier = Modifier.fillMaxSize()) {
+  1567→            val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+  1568→            val dotRadius = size.minDimension * 0.12f
+  1569→
+  1570→            // ─── Idle glowing dot (always visible, pulsing) ──
+  1571→            // 3 concentric circles for a soft glow effect
+  1572→            val glowRadius = dotRadius * pulseScale
+  1573→            drawCircle(
+  1574→                color = Color(0xFFFF6B6B).copy(alpha = 0.08f),
+  1575→                radius = glowRadius * 2.8f,
+  1576→                center = center
+  1577→            )
+  1578→            drawCircle(
+  1579→                color = Color(0xFFFF6B6B).copy(alpha = 0.15f),
+  1580→                radius = glowRadius * 2.0f,
+  1581→                center = center
+  1582→            )
+  1583→            drawCircle(
+  1584→                color = Color(0xFFFF6B6B),
+  1585→                radius = glowRadius,
+  1586→                center = center
+  1587→            )
+  1588→
+  1589→            // ─── Burst particles (visible during burst animation) ──
+  1590→            val progress = burstProgress.value
+  1591→            if (progress > 0f && progress < 1f) {
+  1592→                val maxDistance = size.minDimension * 0.45f
+  1593→                particles.forEach { p ->
+  1594→                    val distance = maxDistance * progress * p.speedMult
+  1595→                    val x = (center.x + kotlin.math.cos(p.angle) * distance).toFloat()
+  1596→                    val y = (center.y + kotlin.math.sin(p.angle) * distance).toFloat()
+  1597→                    val particleSize = dotRadius * p.sizeMult * (1f - progress)
+  1598→                    val alpha = (1f - progress) * 0.9f
+  1599→
+  1600→                    drawCircle(
+  1601→                        color = p.color.copy(alpha = alpha),
+  1602→                        radius = particleSize,
+  1603→                        center = androidx.compose.ui.geometry.Offset(x, y)
+  1604→                    )
+  1605→                }
+  1606→            }
+  1607→        }
+  1608→    }
+  1609→}
+  1610→
+  1611→// ════════════════════════════════════════════════════════════════════
+  1612→// SECTION HEADER
+  1613→// ════════════════════════════════════════════════════════════════════
+  1614→
+  1615→@Composable
+  1616→private fun SectionHeader(
+  1617→    title: String,
+  1618→    count: Int,
+  1619→    textPrimary: Color,
+  1620→    textSecondary: Color
+  1621→) {
+  1622→    Row(
+  1623→        modifier = Modifier.fillMaxWidth(),
+  1624→        horizontalArrangement = Arrangement.SpaceBetween,
+  1625→        verticalAlignment = Alignment.CenterVertically
+  1626→    ) {
+  1627→        // Title + chevron beside it (left side).
+  1628→        // Matches the Speed dial header layout: title, then chevron right,
+  1629→        // no spacer between them.
+  1630→        Row(
+  1631→            horizontalArrangement = Arrangement.spacedBy(6.dp),
+  1632→            verticalAlignment = Alignment.CenterVertically
+  1633→        ) {
+  1634→            Text(
+  1635→                text = title,
+  1636→                color = textPrimary,
+  1637→                fontSize = 20.sp,
+  1638→                fontWeight = FontWeight.SemiBold,
+  1639→                fontFamily = CalSansFamily
+  1640→            )
+  1641→            Icon(
+  1642→                imageVector = CoralIcons.ChevronRight,
+  1643→                contentDescription = null,
+  1644→                tint = textSecondary,
+  1645→                // 20dp — thicker to match the title's visual weight
+  1646→                // (was 16dp, felt too thin next to the 20sp title text).
+  1647→                modifier = Modifier.size(20.dp)
+  1648→            )
+  1649→        }
+  1650→        // Count at the extreme right (no chevron after it — chevron
+  1651→        // is now beside the title).
+  1652→        Text(
+  1653→            text = "$count",
+  1654→            color = textSecondary,
+  1655→            fontSize = 14.sp,
+  1656→            fontFamily = CalSansFamily
+  1657→        )
+  1658→    }
+  1659→}
+  1660→
+  1661→// ════════════════════════════════════════════════════════════════════
+  1662→// GREETING + MOOD HEADER
+  1663→// ════════════════════════════════════════════════════════════════════
+  1664→// Premium typography greeting that changes by time of day.
+  1665→// Uses CalSans font with careful weight/size/spacing hierarchy.
+  1666→//
+  1667→// Layout:
+  1668→//   "Good evening"     ← 32sp, Bold, CalSans, gradient text
+  1669→//   "Ready for some music?"  ← 14sp, Light, CalSans, secondary color
+  1670→//
+  1671→// The gradient on the greeting shifts with time of day:
+  1672→//   Morning  → warm gold → soft orange
+  1673→//   Afternoon → sky blue → soft cyan
+  1674→//   Evening  → coral pink → deep purple
+  1675→//   Night    → deep indigo → midnight blue
+  1676→
+  1677→@Composable
+  1678→private fun GreetingMoodHeader(
+  1679→    textPrimary: Color,
+  1680→    textSecondary: Color,
+  1681→    modifier: Modifier = Modifier,
+  1682→    isPlaying: Boolean = false
+  1683→) {
+  1684→    val hour = remember {
+  1685→        java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+  1686→    }
+  1687→
+  1688→    // ★ User name from prefs
+  1689→    val userName by com.rajatxo.coral.data.prefs.UserName.name.collectAsState()
+  1690→
+  1691→    // ★ Greeting text — just "Hey," + user name. Shorter than "Good
+  1692→    //   evening" so the TodaysTopCard capsule can sit beside it without
+  1693→    //   overlapping. Format: "Hey, Rajat" (or just "Hey," if no name set).
+  1694→    val greeting = if (userName.isNotBlank()) "Hey, $userName" else "Hey,"
+  1695→
+  1696→    // ★ Mood subtitle based on time of day
+  1697→    val moodText = when (hour) {
+  1698→        in 5..11 -> "Start your day with music"
+  1699→        in 12..16 -> "What's on your mind?"
+  1700→        in 17..21 -> "Ready for some music?"
+  1701→        else -> "Late night vibes"
+  1702→    }
+  1703→
+  1704→    // ★ VIBRANT gradient colors (boosted saturation for readability on any bg)
+  1705→    val (gradientStart, gradientEnd) = when (hour) {
+  1706→        in 5..11 -> Color(0xFFFFE066) to Color(0xFFFF6B9D)      // bright gold → hot pink
+  1707→        in 12..16 -> Color(0xFF4DABF7) to Color(0xFF20C997)     // bright blue → emerald
+  1708→        in 17..21 -> Color(0xFFFF5252) to Color(0xFF9C27B0)     // vivid coral → deep purple
+  1709→        else -> Color(0xFF5C7CFA) to Color(0xFF7950F2)          // royal indigo → vibrant violet
+  1710→    }
+  1711→
+  1712→    Column(
+  1713→        modifier = modifier
+  1714→            .fillMaxWidth()
+  1715→            .padding(start = 4.dp)
+  1716→    ) {
+  1717→        Row(
+  1718→            modifier = Modifier.fillMaxWidth(),
+  1719→            horizontalArrangement = Arrangement.SpaceBetween,
+  1720→            verticalAlignment = Alignment.CenterVertically
+  1721→        ) {
+  1722→            // ★ Left side — greeting + mood text
+  1723→            Column(
+  1724→                modifier = Modifier.weight(1f)
+  1725→            ) {
+  1726→                // ★ Greeting — large, bold, PURE WHITE + shadow for readability
+  1727→                Text(
+  1728→                    text = greeting,
+  1729→                    color = Color.White,
+  1730→                    fontFamily = CalSansFamily,
+  1731→                    fontSize = 32.sp,
+  1732→                    fontWeight = FontWeight.Bold,
+  1733→                    style = androidx.compose.ui.text.TextStyle(
+  1734→                        shadow = androidx.compose.ui.graphics.Shadow(
+  1735→                            color = Color.Black.copy(alpha = 0.6f),
+  1736→                            offset = androidx.compose.ui.geometry.Offset(1f, 1f),
+  1737→                            blurRadius = 3f
+  1738→                        )
+  1739→                    ),
+  1740→                    letterSpacing = (-1).sp
+  1741→                )
+  1742→
+  1743→                // ★ Mood subtitle — smaller, lighter, with shadow
+  1744→                Text(
+  1745→                    text = moodText,
+  1746→                    fontFamily = CalSansFamily,
+  1747→                    fontSize = 14.sp,
+  1748→                    fontWeight = FontWeight.Light,
+  1749→                    color = textSecondary,
+  1750→                    letterSpacing = 0.sp,
+  1751→                    style = androidx.compose.ui.text.TextStyle(
+  1752→                        shadow = androidx.compose.ui.graphics.Shadow(
+  1753→                            color = Color.Black.copy(alpha = 0.5f),
+  1754→                            offset = androidx.compose.ui.geometry.Offset(0.5f, 0.5f),
+  1755→                            blurRadius = 2f
+  1756→                        )
+  1757→                    ),
+  1758→                    modifier = Modifier.padding(top = 2.dp)
+  1759→                )
+  1760→            }
+  1761→        }
+  1762→    }
+  1763→}
+  1764→
+  1765→/**
+  1766→ * Get total daily listening time in seconds from PlaybackHistory.
+  1767→ */
+  1768→@Composable
+  1769→private fun getDailyListeningSeconds(): Int {
+  1770→    val dailyPlays by com.rajatxo.coral.data.prefs.PlaybackHistory.dailyPlays.collectAsState()
+  1771→    return remember(dailyPlays) {
+  1772→        dailyPlays.sumOf { it.playCount }
+  1773→    }
+  1774→}
+  1775→
