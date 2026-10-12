@@ -1,24 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- ★ Allows the app to install APKs downloaded from GitHub Releases -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- ─── Music scanning ─────────────────────────────────────────── -->
+    <!-- ─── Music scanning ─────────────────────────────────────── -->
     <!-- Android 13+ — granular media permission -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Android 12 and below — legacy storage permission -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <!-- Optional: for embedding cover art into file metadata -->
-    <uses-permission
-        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
+    <!-- NOTE: MANAGE_EXTERNAL_STORAGE removed — Play Store rejects music apps with it.
+         Cover art embedding will use SAF (Storage Access Framework) when built. -->
 
-    <!-- ─── Notifications ──────────────────────────────────────────── -->
+    <!-- ─── Notifications ────────────────────────────────────────── -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- MediaSession foreground service (required for background playback) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -47,7 +44,6 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|smallestScreenSize|uiMode|locale|layoutDirection|fontScale|density"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Coral">
             <intent-filter>

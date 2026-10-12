@@ -65,18 +65,20 @@ fun CoralXScaffold(
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
+    // ★ ConsistentNavBarPadding — always at least 48dp (button nav height).
+    // This ensures the tab capsule + FAB sit at the same height on gesture-nav
+    // phones (thin gesture bar ~16dp) and button-nav phones (~48dp).
     val systemBottom = WindowInsets.navigationBars.getBottom(density)
-    val minBottom = with(density) { 48.dp.toPx().toInt() }
+    val minBottom = with(density) { Dimensions.MinBottomSystemInset.toPx().toInt() }
     val effBottomDp = with(density) { maxOf(systemBottom, minBottom).toDp() }
     val effTopDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
 
-    // ★ Content top padding = status bar + 100dp (matches old Coral's 108dp).
-    // The blur header is 120dp tall — content starts at ~100dp, so it peeks
-    // through the bottom of the blur fade. This gives proper breathing room
-    // between the header and the first section ("Today's Top").
+    // ★ Content top padding = status bar + top bar height.
+    // Content scrolls UNDER the blur header. The blur is 120dp tall, content
+    // starts at statusBar + 56dp (header row), so it peeks through the blur fade.
     val insets = WindowInsets(
-        top = effTopDp + 100.dp,
-        bottom = effBottomDp + 80.dp
+        top = effTopDp + Dimensions.TopBarHeight,
+        bottom = effBottomDp + Dimensions.MiniPlayerHeight + Dimensions.BottomStackGap
     )
 
     val graphicsLayer = rememberGraphicsLayer()
@@ -110,19 +112,17 @@ fun CoralXScaffold(
                 content()
             }
 
-            // Header blur (120dp)
+            // Header blur
             val useRE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(120.dp)
+                    .height(Dimensions.TopBlurHeight)
                     .graphicsLayer {
                         compositingStrategy = CompositingStrategy.Offscreen
                         clip = true
                         if (useRE) {
-                            // 30dp blur — stronger than the old 20dp so the blur
-                            // is clearly visible even over dark content.
                             renderEffect = BlurEffect(30.dp.toPx(), 30.dp.toPx())
                         }
                     }
@@ -166,13 +166,13 @@ fun CoralXScaffold(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(56.dp)
-                    .padding(horizontal = 16.dp),
+                    .height(Dimensions.TopBarHeight)
+                    .padding(horizontal = Dimensions.NavBarHorizontalPadding),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(Dimensions.TopBarIconTouchSize)
                         .clip(CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -185,13 +185,13 @@ fun CoralXScaffold(
                         imageVector = CoralXIcons.CircleUser,
                         contentDescription = "Profile",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(Dimensions.TopBarIconSize)
                     )
                 }
                 Text(
                     text = title,
                     color = Color.White,
-                    fontSize = 24.sp,
+                    fontSize = Dimensions.TitleFontSize.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = CalSansFamily,
                     textAlign = TextAlign.Center,
@@ -199,7 +199,7 @@ fun CoralXScaffold(
                 )
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(Dimensions.TopBarIconTouchSize)
                         .clip(CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -212,7 +212,7 @@ fun CoralXScaffold(
                         imageVector = CoralXIcons.Cog,
                         contentDescription = "Settings",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(Dimensions.TopBarIconSize)
                     )
                 }
             }
@@ -222,7 +222,7 @@ fun CoralXScaffold(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = Dimensions.NavBarHorizontalPadding)
                     .padding(bottom = effBottomDp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
@@ -233,11 +233,11 @@ fun CoralXScaffold(
                     onTabSelected = onTabSelected,
                     backdrop = glassBackdrop
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
                 val fabShape = CircleShape
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(Dimensions.SearchFabSize)
                         .clip(fabShape)
                         .drawBackdrop(
                             backdrop = glassBackdrop,
