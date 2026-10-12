@@ -218,7 +218,7 @@ fun CoralXScaffold(
                     backdrop = glassBackdrop
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                val fabShape = RoundedCornerShape(16.dp)
+                val fabShape = CircleShape
                 Box(
                     modifier = Modifier
                         .size(56.dp)
