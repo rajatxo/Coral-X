@@ -178,16 +178,17 @@ fun QuickPicksScreen() {
     // Extract palette from the first song's album art (for the background gradient)
     LaunchedEffect(songs) {
         val firstSongWithArt = songs.firstOrNull { it.albumArtUri != null }
-        if (firstSongWithArt != null) {
+        val artUri = firstSongWithArt?.albumArtUri
+        if (artUri != null) {
             // Check cache first
-            com.rajatxo.coral.util.PaletteCache.get(firstSongWithArt.albumArtUri)?.let { palette = it }
+            com.rajatxo.coral.util.PaletteCache.get(artUri)?.let { palette = it }
             // Extract in background
             val extracted = withContext(Dispatchers.IO) {
-                com.rajatxo.coral.util.extractPalette(context, firstSongWithArt.albumArtUri)
+                com.rajatxo.coral.util.extractPalette(context, artUri)
             }
             if (extracted != null) {
                 palette = extracted
-                com.rajatxo.coral.util.PaletteCache.put(firstSongWithArt.albumArtUri, extracted)
+                com.rajatxo.coral.util.PaletteCache.put(artUri, extracted)
             }
         }
     }
