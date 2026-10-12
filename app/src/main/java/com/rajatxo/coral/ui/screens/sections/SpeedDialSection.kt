@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -58,10 +59,14 @@ import com.rajatxo.coral.util.BlurTransformation
  * Ported from old Coral's SpeedDialSection. Uses HorizontalPager so the
  * user can swipe between pages of songs (like old Coral — 3 pages max).
  *
+ * Song selection (ported from old Coral):
+ *   - Pinned songs come FIRST (from SpeedDialPinStore)
+ *   - Mode RANDOM: completely random songs fill the rest
+ *   - Mode LAST_PLAYED: 80% from last-played artist + 20% other
+ *
  * Page 1: 8 songs + 1 dice (dice is the last slot on page 1)
  * Pages 2+: 9 songs per page
- *
- * Each tile shows real album art with Spiral 2.0 blur-blend + song title.
+ * Total: 26 songs (8 + 9 + 9)
  */
 @Composable
 fun SpeedDialSection(
@@ -71,11 +76,72 @@ fun SpeedDialSection(
     onTileClick: (Song) -> Unit = {},
     onDiceClick: () -> Unit = {}
 ) {
+    // ★ Observe pinned songs + speed dial mode
+    val pinnedIds by com.rajatxo.coral.data.prefs.SpeedDialPinStore.pinnedIds.collectAsState()
+    val speedDialMode by com.rajatxo.coral.data.prefs.SpeedDialModeManager.mode.collectAsState()
+    val playbackHistory by com.rajatxo.coral.data.prefs.PlaybackHistory.history.collectAsState()
+
+    // Random seed — changes on every app launch (so songs are different each time)
+    val launchSeed = remember { kotlin.random.Random.nextInt() }
+
+    // ★ Build the speed dial song list (pinned first, then random/last-played)
+    val speedDialSongs = remember(songs.size, pinnedIds, launchSeed, speedDialMode, playbackHistory) {
+        if (songs.isEmpty()) emptyList()
+        else {
+            // 1. Pinned songs (in pin order), filtered to ones that still exist
+            val pinnedSongs = pinnedIds.mapNotNull { id ->
+                songs.firstOrNull { it.id == id }
+            }
+            // 2. Pool of available (non-pinned) songs
+            val pool = songs.filter { it.id !in pinnedIds }
+
+            // 3. Pick songs based on mode
+            val targetCount = 26
+            val randomCount = (targetCount - pinnedSongs.size).coerceAtLeast(0)
+
+            val picked: List<Song> = if (speedDialMode == com.rajatxo.coral.data.prefs.SpeedDialModeManager.SpeedDialMode.LAST_PLAYED
+                && playbackHistory.isNotEmpty()
+            ) {
+                // LAST_PLAYED mode — 80% from last-played artist + 20% other
+                val lastArtist = playbackHistory.firstOrNull()?.artist
+                if (!lastArtist.isNullOrBlank()) {
+                    val artistSongs = pool.filter {
+                        it.artist.trim().equals(lastArtist.trim(), ignoreCase = true)
+                    }.shuffled(kotlin.random.Random(launchSeed + 100))
+                    val otherSongs = pool.filter {
+                        !it.artist.trim().equals(lastArtist.trim(), ignoreCase = true)
+                    }.shuffled(kotlin.random.Random(launchSeed + 200))
+                    val eightyPct = (randomCount * 0.8f).toInt()
+                    val artistPicked = artistSongs.take(eightyPct)
+                    val remainingNeeded = randomCount - artistPicked.size
+                    artistPicked + otherSongs.take(remainingNeeded)
+                } else {
+                    pool.shuffled(kotlin.random.Random(launchSeed + 100)).take(randomCount)
+                }
+            } else {
+                // RANDOM mode — completely random
+                pool.shuffled(kotlin.random.Random(launchSeed + 100)).take(randomCount)
+            }
+
+            // Failsafe — pad with pool songs if we don't have enough
+            val finalPicked = if (picked.size < randomCount && pool.isNotEmpty()) {
+                val stillNeeded = randomCount - picked.size
+                val fillers = pool.shuffled(kotlin.random.Random(launchSeed + 300))
+                    .filter { it.id !in picked.map(Song::id) }
+                    .take(stillNeeded)
+                picked + fillers
+            } else {
+                picked
+            }
+            pinnedSongs + finalPicked
+        }
+    }
+
     // ─── Pagination math (same as old Coral) ──
     val columns = 3
     val rows = 3
     val itemsPerPage = columns * rows  // 9
-    val totalSlots = songs.size + 1    // +1 for the dice
+    val totalSlots = speedDialSongs.size + 1    // +1 for the dice
     val pageCount = (totalSlots + itemsPerPage - 1) / itemsPerPage
     val pagerState = rememberPagerState(pageCount = { pageCount.coerceAtLeast(1) })
 
@@ -156,7 +222,7 @@ fun SpeedDialSection(
                                 } else {
                                     globalItemIndex - 1
                                 }
-                                val song = songs.getOrNull(actualIndex)
+                                val song = speedDialSongs.getOrNull(actualIndex)
                                 if (song != null) {
                                     SpeedDialTile(
                                         song = song,

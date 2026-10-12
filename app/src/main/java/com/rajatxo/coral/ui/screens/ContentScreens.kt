@@ -29,14 +29,18 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,6 +148,7 @@ private val placeholderSongs = listOf(
  * nav bar + future mini player), horizontal=20dp, spacing=6dp.
  * Same values as old Coral.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickPicksScreen() {
     val context = LocalContext.current
@@ -224,12 +229,12 @@ fun QuickPicksScreen() {
     )
 
     val recentSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
-        songs.sortedByDescending { it.dateAdded }.take(10).map { it.toPlaceholder() }
+        songs.sortedByDescending { it.dateAdded }.take(100).map { it.toPlaceholder() }
     } else {
         placeholderSongs.take(10)
     }
     val moreSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
-        songs.take(10).map { it.toPlaceholder() }
+        songs.take(100).map { it.toPlaceholder() }
     } else {
         placeholderSongs.takeLast(10)
     }
@@ -238,6 +243,11 @@ fun QuickPicksScreen() {
     val insets = LocalCoralXWindowInsets.current
     val topPadding = with(density) { insets.getTop(density).toDp() }
     val bottomPadding = with(density) { insets.getBottom(density).toDp() }
+
+    // ★ Pull-to-refresh state
+    val ptrState = rememberPullToRefreshState()
+    var isRefreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // ★ Background: solid dark base + palette gradient on top
     // The gradient fills the ENTIRE screen, including behind the blur header.
@@ -260,6 +270,24 @@ fun QuickPicksScreen() {
                 )
             )
     ) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                // Re-scan MediaStore + roll a new random seed for speed dial
+                isRefreshing = true
+                scope.launch {
+                    val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+                    if (scanned.isNotEmpty()) {
+                        songs = scanned
+                        withContext(Dispatchers.IO) { SongCache.save(context, scanned) }
+                    }
+                    delay(500)
+                    isRefreshing = false
+                }
+            },
+            state = ptrState,
+            modifier = Modifier.fillMaxSize()
+        ) {
         LazyColumn(
             contentPadding = PaddingValues(
                 top = topPadding,
@@ -275,11 +303,11 @@ fun QuickPicksScreen() {
             item { GreetingMoodHeader(userName = "Rajat", modifier = Modifier.padding(bottom = 6.dp)) }
         }
 
-        // 2. Today's Top — pass real songs (top 6 by dateAdded)
+        // 2. Today's Top — reads from PlaybackHistory.dailyPlays internally
         if (todaysTopEnabled) {
             item {
                 TodaysTopSection(
-                    songs = songs.take(6),
+                    songs = songs,
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
             }
@@ -357,6 +385,7 @@ fun QuickPicksScreen() {
                     }
                 }
             }
+        }
         }
         }
     }

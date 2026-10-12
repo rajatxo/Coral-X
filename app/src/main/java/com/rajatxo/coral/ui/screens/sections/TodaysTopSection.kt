@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,24 +28,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import com.rajatxo.coral.data.prefs.PlaybackHistory
 import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
 
 /**
- * ★ TodaysTopSection — 3 capsule stories with album art.
+ * ★ TodaysTopSection — 3 capsule stories showing the top-played songs today.
  *
- * Ported from old Coral. Now accepts real [Song] objects.
- * Each capsule shows 2 album art circles from the song's albumArtUri.
+ * Ported from old Coral. Reads from PlaybackHistory.dailyPlays to show the
+ * 6 most-played songs today (by accumulated play duration).
  *
- * @param songs Top songs (up to 6). Each capsule uses 2 songs, so 3 capsules
- *   need 6 songs. If fewer, capsules show placeholder "+" circles.
+ * Each capsule shows 2 album art circles. If fewer than 6 songs have been
+ * played today, capsules show placeholder "+" circles.
+ *
+ * @param songs The full song library (for looking up Song objects by ID)
  */
 @Composable
 fun TodaysTopSection(
@@ -51,6 +55,16 @@ fun TodaysTopSection(
     songs: List<Song> = emptyList(),
     onCapsuleClick: () -> Unit = {}
 ) {
+    // ★ Read daily play history — shows top-played songs today
+    val dailyPlays by PlaybackHistory.dailyPlays.collectAsState()
+
+    // Map daily play entries to actual Song objects from the library
+    val topSongs: List<Song> = remember(dailyPlays, songs) {
+        dailyPlays.take(6).mapNotNull { entry ->
+            songs.find { it.id == entry.songId }
+        }
+    }
+
     // Default placeholder colors (used when no songs available)
     val placeholderColors = listOf(
         Color(0xFFFF6B6B), Color(0xFFFFD166), Color(0xFF6B9EFF),
@@ -87,8 +101,8 @@ fun TodaysTopSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             for (i in 0 until 3) {
-                val song1 = songs.getOrNull(i * 2)
-                val song2 = songs.getOrNull(i * 2 + 1)
+                val song1 = topSongs.getOrNull(i * 2)
+                val song2 = topSongs.getOrNull(i * 2 + 1)
 
                 val color1 = if (song1 != null) songPlaceholderColor(song1.id) else placeholderColors[i * 2]
                 val color2 = if (song2 != null) songPlaceholderColor(song2.id) else placeholderColors[i * 2 + 1]
@@ -167,9 +181,6 @@ private fun AlbumArtCircle(
     }
 }
 
-/**
- * Derive a stable color from a song ID (same as SpeedDialSection).
- */
 private fun songPlaceholderColor(songId: Long): Color {
     val hue = (songId % 360).toFloat()
     return Color.hsv(hue = hue, saturation = 0.45f, value = 0.22f)

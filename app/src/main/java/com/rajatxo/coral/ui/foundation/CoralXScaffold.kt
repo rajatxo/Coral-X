@@ -75,12 +75,11 @@ fun CoralXScaffold(
     val effBottomDp = with(density) { maxOf(systemBottom, minBottom).toDp() }
     val effTopDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
 
-    // ★ Content top padding = status bar + header row height (NO gap).
-    // Content (greeting header, cards) starts right below the header row,
-    // so it peeks through the blur fade at the bottom of the 120dp blur layer.
-    // This gives the blur real content to sample → visible blur.
+    // ★ Content top padding = status bar + header row height + gap.
+    // Matches old Coral: 108dp total from screen top to first content.
+    // (statusBar ~24dp + header 56dp + gap 28dp = ~108dp)
     val insets = WindowInsets(
-        top = effTopDp + Dimensions.TopBarHeight,
+        top = effTopDp + Dimensions.TopBarHeight + Dimensions.ContentTopGap,
         bottom = effBottomDp + Dimensions.MiniPlayerHeight + Dimensions.BottomStackGap
     )
 

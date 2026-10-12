@@ -81,18 +81,42 @@ object PlaybackConnection {
 
     /**
      * Poll the controller for current position + duration.
+     * Also accumulates play duration for Today's Top ranking.
      * Call from a LaunchedEffect every 200ms while playing.
      */
     fun pollPosition() {
         controller?.let { c ->
-            _positionMs.value = c.currentPosition.coerceAtLeast(0L)
-            _durationMs.value = c.duration.coerceAtLeast(0L)
+            val pos = c.currentPosition.coerceAtLeast(0L)
+            val dur = c.duration.coerceAtLeast(0L)
+            _positionMs.value = pos
+            _durationMs.value = dur
+
+            // ★ Accumulate play duration every second (for Today's Top ranking)
+            //   Only count when actually playing (not paused/buffering)
+            val song = _currentSong.value
+            if (c.isPlaying && song != null) {
+                val now = System.currentTimeMillis()
+                if (now - lastDurationUpdateMs >= 1000L) {
+                    val elapsed = ((now - lastDurationUpdateMs) / 1000L).toInt().coerceAtLeast(1)
+                    com.rajatxo.coral.data.prefs.PlaybackHistory.addPlayDuration(
+                        song.id, song.artist, elapsed
+                    )
+                    lastDurationUpdateMs = now
+                }
+            } else {
+                lastDurationUpdateMs = System.currentTimeMillis()
+            }
         }
     }
+
+    private var lastDurationUpdateMs = 0L
 
     /**
      * Play a song from a list. Sets the entire list as the queue, seeks to
      * the clicked song, and starts playback.
+     *
+     * Also records the song in PlaybackHistory (for Speed Dial "Last Played"
+     * mode) and in dailyPlays (for Today's Top section).
      */
     fun playSong(song: Song, allSongs: List<Song>) {
         queue = allSongs
@@ -116,6 +140,10 @@ object PlaybackConnection {
         controller.prepare()
         controller.play()
         _currentSong.value = song
+
+        // ★ Record in PlaybackHistory (for Speed Dial "Last Played" mode + Today's Top)
+        com.rajatxo.coral.data.prefs.PlaybackHistory.recordPlayback(song.id, song.artist)
+        com.rajatxo.coral.data.prefs.PlaybackHistory.recordDailyPlay(song.id, song.artist)
     }
 
     fun playPause() {
