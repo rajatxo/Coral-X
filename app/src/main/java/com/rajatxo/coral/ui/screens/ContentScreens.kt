@@ -291,12 +291,7 @@ fun QuickPicksScreen() {
             },
             state = ptrState,
             modifier = Modifier.fillMaxSize(),
-            indicator = {
-                com.rajatxo.coral.ui.components.BugLineRefreshIndicator(
-                    progress = ptrState.distanceFraction,
-                    isRefreshing = isRefreshing
-                )
-            }
+            indicator = {}  // Suppress default indicator — BugLineRefreshIndicator is in Speed Dial header
         ) {
         LazyColumn(
             contentPadding = PaddingValues(
@@ -323,11 +318,13 @@ fun QuickPicksScreen() {
             }
         }
 
-        // 3. Speed Dial — pass 26 songs for 3 pages (8+1 dice + 9 + 9)
+        // 3. Speed Dial — pass 26 songs for 3 pages + pull progress for bug indicator
         if (speedDialEnabled) {
             item {
                 SpeedDialSection(
                     songs = songs.take(26),
+                    pullProgress = ptrState.distanceFraction,
+                    isRefreshing = isRefreshing,
                     onTileClick = { song ->
                         com.rajatxo.coral.playback.PlaybackConnection.playSong(song, songs)
                     },

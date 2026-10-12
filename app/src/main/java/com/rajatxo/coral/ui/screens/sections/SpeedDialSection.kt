@@ -76,6 +76,8 @@ import com.rajatxo.coral.util.BlurTransformation
 fun SpeedDialSection(
     modifier: Modifier = Modifier,
     songs: List<Song> = emptyList(),
+    pullProgress: Float = 0f,
+    isRefreshing: Boolean = false,
     onHeaderClick: () -> Unit = {},
     onTileClick: (Song) -> Unit = {},
     onDiceClick: () -> Unit = {}
@@ -183,6 +185,14 @@ fun SpeedDialSection(
                     modifier = Modifier.size(20.dp)
                 )
             }
+            // ★ Bug-on-a-line pull-to-refresh indicator (in the header, weight 1f)
+            com.rajatxo.coral.ui.components.BugLineRefreshIndicator(
+                progress = pullProgress,
+                isRefreshing = isRefreshing,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(20.dp)
+            )
         }
 
         // ★ HorizontalPager — swipe between pages of songs.
