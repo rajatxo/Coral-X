@@ -63,6 +63,7 @@ fun CoralXScaffold(
     onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    miniPlayer: @Composable (() -> Unit) = {},
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
@@ -209,6 +210,18 @@ fun CoralXScaffold(
                         modifier = Modifier.size(Dimensions.TopBarIconSize)
                     )
                 }
+            }
+
+            // ★ Mini player — sits ABOVE the tab capsule + FAB
+            // Rendered as a slot so MainActivity can pass in the real MiniPlayer.
+            // Only visible when a song is loaded (the MiniPlayer composable
+            // checks PlaybackConnection.currentSong internally).
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = effBottomDp + Dimensions.NavBarHeight + Dimensions.BottomStackGap)
+            ) {
+                miniPlayer()
             }
 
             // Bottom: TabCapsule + Search FAB

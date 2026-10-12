@@ -285,11 +285,21 @@ fun QuickPicksScreen() {
             }
         }
 
-        // 3. Speed Dial — pass real songs (first 8)
+        // 3. Speed Dial — pass real songs (first 8), clicking plays the song
         if (speedDialEnabled) {
             item {
                 SpeedDialSection(
                     songs = songs.take(8),
+                    onTileClick = { song ->
+                        com.rajatxo.coral.playback.PlaybackConnection.playSong(song, songs)
+                    },
+                    onDiceClick = {
+                        // Shuffle: pick a random song and play it
+                        if (songs.isNotEmpty()) {
+                            val random = songs.random()
+                            com.rajatxo.coral.playback.PlaybackConnection.playSong(random, songs)
+                        }
+                    },
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
             }
@@ -309,6 +319,13 @@ fun QuickPicksScreen() {
                             artist = song.artist,
                             color = song.color,
                             albumArtUri = song.albumArtUri,
+                            onClick = {
+                                // Find the real Song from the songs list and play it
+                                val realSong = songs.firstOrNull { it.id == song.id }
+                                if (realSong != null) {
+                                    com.rajatxo.coral.playback.PlaybackConnection.playSong(realSong, songs)
+                                }
+                            },
                             modifier = Modifier.width(140.dp).height(200.dp)
                         )
                     }
@@ -330,6 +347,12 @@ fun QuickPicksScreen() {
                             artist = song.artist,
                             color = song.color,
                             albumArtUri = song.albumArtUri,
+                            onClick = {
+                                val realSong = songs.firstOrNull { it.id == song.id }
+                                if (realSong != null) {
+                                    com.rajatxo.coral.playback.PlaybackConnection.playSong(realSong, songs)
+                                }
+                            },
                             modifier = Modifier.width(160.dp).height(220.dp)
                         )
                     }
