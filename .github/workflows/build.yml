@@ -59,6 +59,23 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Auto-bump patch version (nightly)
+      run: |
+        CURRENT_CODE=$(grep 'versionCode' app/build.gradle.kts | head -1 | sed 's/.*= *//; s/ *//' | tr -d '"')
+        CURRENT_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*= *"//; s/".*//')
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_NAME"
+        NEW_PATCH=$((PATCH + 1))
+        NEW_NAME="${MAJOR}.${MINOR}.${NEW_PATCH}"
+        NEW_CODE=$((MAJOR * 10000 + MINOR * 100 + NEW_PATCH))
+        echo "Bumping: $CURRENT_NAME ($CURRENT_CODE) -> $NEW_NAME ($NEW_CODE)"
+        sed -i "s/versionCode = .*/versionCode = $NEW_CODE/" app/build.gradle.kts
+        sed -i "s/versionName = .*/versionName = \"$NEW_NAME\"/" app/build.gradle.kts
+        git config user.name "Coral CI"
+        git config user.email "ci@coral.local"
+        git add app/build.gradle.kts
+        git commit -m "chore: auto-bump to v$NEW_NAME (nightly)" || true
+        git push origin main || true
+
     - name: Build release APK
       run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
 
@@ -66,11 +83,17 @@ jobs:
       id: version
       run: |
         VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | head -1 | sed 's/.*= *//; s/ *//' | tr -d '"')
-        VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*= *//; s/ *//' | tr -d '"')
+        VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*= *"//; s/".*//')
         echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
         echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
         echo "tag=v$VERSION_NAME" >> $GITHUB_OUTPUT
         echo "Version: $VERSION_NAME (code: $VERSION_CODE)"
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_NAME"
+        if [ "$PATCH" = "0" ]; then
+          echo "is_stable=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_stable=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -91,19 +114,28 @@ jobs:
         fi
 
         VERSION_NAME="${{ steps.version.outputs.version_name }}"
+        IS_STABLE="${{ steps.version.outputs.is_stable }}"
         FILENAME="Coral-v${VERSION_NAME}.apk"
 
         # Rename the APK
         cp "$APK_PATH" "$FILENAME"
 
-        echo "Sending $FILENAME to Telegram (Release Nightly topic)..."
+        # Determine label
+        if [ "$IS_STABLE" = "true" ]; then
+          LABEL="Stable"
+          CAPTION_LABEL="Stable"
+        else
+          LABEL="Nightly"
+          CAPTION_LABEL="Nightly"
+        fi
 
-        # ★ Forum topic ID — "Release Nightly" topic (was "Release", thread_id=2)
-        # This posts ONLY in the Release Nightly topic, not General chat.
+        echo "Sending $FILENAME to Telegram ($LABEL | Release topic)..."
+
+        # ★ Forum topic ID — "Nightly | Release" topic (thread_id=2)
         THREAD_ID=2
 
         # Send message first (in the topic)
-        MESSAGE="Coral v${VERSION_NAME} - Nightly build. Download the APK below. Install it to update Coral."
+        MESSAGE="Coral v${VERSION_NAME} - ${LABEL} build. Download the APK below. Install it to update Coral."
 
         curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
           -d "chat_id=${TELEGRAM_CHAT_ID}" \
@@ -116,7 +148,7 @@ jobs:
           -F "chat_id=${TELEGRAM_CHAT_ID}" \
           -F "message_thread_id=${THREAD_ID}" \
           -F "document=@${FILENAME}" \
-          -F "caption=Coral v${VERSION_NAME} (Nightly)"
+          -F "caption=Coral v${VERSION_NAME} (${CAPTION_LABEL})"
 
         echo "APK sent to Telegram Release Nightly topic!"
 

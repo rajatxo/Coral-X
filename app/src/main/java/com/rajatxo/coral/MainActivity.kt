@@ -56,9 +56,10 @@ private fun CoralXRoot() {
     var showUpdateDialog by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateResult.UpdateAvailable?>(null) }
 
-    // Check for updates on launch
+    // Check for updates on launch — uses user's channel preference
     LaunchedEffect(Unit) {
-        val result = UpdateChecker.checkForUpdate(BuildConfig.VERSION_CODE)
+        val channel = com.rajatxo.coral.data.prefs.UpdateChannelManager.channel.value
+        val result = UpdateChecker.checkForUpdate(BuildConfig.VERSION_CODE, channel)
         if (result is UpdateChecker.UpdateResult.UpdateAvailable) {
             updateInfo = result
             showUpdateDialog = true
@@ -90,6 +91,7 @@ private fun CoralXRoot() {
             UpdateDialog(
                 versionName = updateInfo!!.versionName,
                 releaseNotes = updateInfo!!.releaseNotes,
+                isStable = updateInfo!!.isStable,
                 onDownload = {
                     UpdateChecker.openTelegramDownload(context)
                 },
@@ -114,6 +116,7 @@ private fun CoralXRoot() {
 private fun UpdateDialog(
     versionName: String,
     releaseNotes: String,
+    isStable: Boolean,
     onDownload: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -155,6 +158,24 @@ private fun UpdateDialog(
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium
             )
+            Spacer(modifier = Modifier.height(4.dp))
+            // Channel badge (Stable = green, Nightly = orange)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        if (isStable) Color(0xFF51CF66).copy(alpha = 0.2f)
+                        else Color(0xFFFFD166).copy(alpha = 0.2f)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (isStable) "Stable" else "Nightly",
+                    color = if (isStable) Color(0xFF51CF66) else Color(0xFFFFD166),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = releaseNotes.take(200),
