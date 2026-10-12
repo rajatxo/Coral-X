@@ -7,3 +7,4 @@ This project uses GitHub Actions to build APKs automatically. Push any change an
 ## License
 
 All rights reserved. This is proprietary software.
+# v0.5.1
