@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,11 +47,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rajatxo.coral.data.prefs.SectionToggleManager
+import com.rajatxo.coral.data.scanner.MusicScanner
+import com.rajatxo.coral.data.scanner.SongCache
+import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.ui.foundation.LocalCoralXWindowInsets
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.screens.sections.GreetingMoodHeader
@@ -58,6 +64,8 @@ import com.rajatxo.coral.ui.screens.sections.SectionHeader
 import com.rajatxo.coral.ui.screens.sections.SpeedDialSection
 import com.rajatxo.coral.ui.screens.sections.TodaysTopSection
 import com.rajatxo.coral.ui.theme.CalSansFamily
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -68,6 +76,25 @@ data class PlaceholderSong(
     val artist: String,
     val color: Color
 )
+
+/**
+ * Convert a real [Song] (from MediaStore) to a [PlaceholderSong] so it can
+ * be rendered by the existing SquareCard / LandscapeCard components.
+ *
+ * The color is derived deterministically from the song's id (hash → hue)
+ * so each song gets a stable, distinct placeholder color until we wire
+ * Coil3 + albumArtUri to load real album art.
+ */
+private fun Song.toPlaceholder(): PlaceholderSong {
+    val hue = (id % 360).toFloat()
+    val color = Color.hsv(hue = hue, saturation = 0.35f, value = 0.18f)
+    return PlaceholderSong(
+        id = id,
+        title = title,
+        artist = artist,
+        color = color
+    )
+}
 
 private val placeholderSongs = listOf(
     PlaceholderSong(1, "Blinding Lights", "The Weeknd", Color(0xFF1a0a2e)),
@@ -114,19 +141,59 @@ private val placeholderSongs = listOf(
  */
 @Composable
 fun QuickPicksScreen() {
+    val context = LocalContext.current
     val greetingEnabled by SectionToggleManager.greetingEnabled.collectAsState()
     val todaysTopEnabled by SectionToggleManager.todaysTopEnabled.collectAsState()
     val speedDialEnabled by SectionToggleManager.speedDialEnabled.collectAsState()
     val recentEnabled by SectionToggleManager.recentEnabled.collectAsState()
     val morePicksEnabled by SectionToggleManager.morePicksEnabled.collectAsState()
 
-    val recentSongs = placeholderSongs.take(10)
-    val moreSongs = placeholderSongs.takeLast(10)
+    // ★ Real songs from MediaStore (with cache for instant render)
+    // 1. Load cache synchronously on first composition → instant render
+    // 2. Scan MediaStore in background → update if different
+    var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+
+    // Sync cache load — runs once when the screen first composes
+    LaunchedEffect(Unit) {
+        // Load cache first (instant, ~5-20ms)
+        val cached = withContext(Dispatchers.IO) { SongCache.load(context) }
+        songs = cached
+
+        // Then scan MediaStore in background
+        val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+        if (scanned.isNotEmpty()) {
+            songs = scanned
+            // Save to cache for next launch
+            withContext(Dispatchers.IO) { SongCache.save(context, scanned) }
+        }
+    }
+
+    // For now, the Recent and More Picks sections still use placeholder colors
+    // (until the SquareCard / LandscapeCard components are updated to load
+    // real album art via Coil3 + albumArtUri). We convert real Song objects
+    // to PlaceholderSong wrappers so the existing cards keep rendering.
+    // The songs list is loaded and ready for when we wire those components.
+    val recentSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
+        songs.sortedByDescending { it.dateAdded }.take(10).map { it.toPlaceholder() }
+    } else {
+        placeholderSongs.take(10)
+    }
+    val moreSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
+        songs.take(10).map { it.toPlaceholder() }
+    } else {
+        placeholderSongs.takeLast(10)
+    }
+
+    // ★ Use the scaffold's computed insets (status bar + header height + bottom nav)
+    val density = LocalDensity.current
+    val insets = LocalCoralXWindowInsets.current
+    val topPadding = with(density) { insets.getTop(density).toDp() }
+    val bottomPadding = with(density) { insets.getBottom(density).toDp() }
 
     LazyColumn(
         contentPadding = PaddingValues(
-            top = 108.dp,
-            bottom = 200.dp,
+            top = topPadding,
+            bottom = bottomPadding,
             start = 20.dp,
             end = 20.dp
         ),
@@ -346,8 +413,12 @@ private fun LandscapeCard(
 
 @Composable
 fun SongsScreen() {
+    val density = LocalDensity.current
+    val insets = LocalCoralXWindowInsets.current
+    val topPadding = with(density) { insets.getTop(density).toDp() }
+    val bottomPadding = with(density) { insets.getBottom(density).toDp() }
     LazyColumn(
-        contentPadding = PaddingValues(top = 108.dp, bottom = 200.dp, start = 20.dp, end = 20.dp),
+        contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding, start = 20.dp, end = 20.dp),
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -364,8 +435,12 @@ fun PlaylistsScreen() {
         "Late Night" to 8, "Favorites" to 45, "Discover Weekly" to 30,
         "Throwback" to 50, "Focus" to 18
     )
+    val density = LocalDensity.current
+    val insets = LocalCoralXWindowInsets.current
+    val topPadding = with(density) { insets.getTop(density).toDp() }
+    val bottomPadding = with(density) { insets.getBottom(density).toDp() }
     LazyColumn(
-        contentPadding = PaddingValues(top = 108.dp, bottom = 200.dp, start = 20.dp, end = 20.dp),
+        contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding, start = 20.dp, end = 20.dp),
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

@@ -31,8 +31,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -226,23 +228,22 @@ fun PermissionScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .statusBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Top)
         ) {
             // ─── "Coral X" hero typography ──────────────────────────────
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = "Coral X",
                 color = Color.White,
-                fontSize = 64.sp,
+                fontSize = 52.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = CalSansFamily
             )
-
-            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "Allow Access to begin",
@@ -252,7 +253,7 @@ fun PermissionScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             // ─── Dark glass permission cards ───────────────────────────
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -335,8 +336,8 @@ fun PermissionScreen(
                 )
             }
 
-            // --- Footer ---
-            Spacer(modifier = Modifier.height(40.dp))
+            // --- Footer (scrollable, never cut off) ---
+            Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "We respect your privacy.",
                 color = Color.White.copy(alpha = 0.55f),
@@ -351,6 +352,8 @@ fun PermissionScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 4.dp, start = 8.dp, end = 8.dp)
             )
+            // Bottom padding so the last text never gets cut by the nav bar
+            Spacer(modifier = Modifier.height(48.dp))
         }
 
         // Fade-out overlay

@@ -70,9 +70,14 @@ fun CoralXScaffold(
     val effBottomDp = with(density) { maxOf(systemBottom, minBottom).toDp() }
     val effTopDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
 
+    // ★ Content fills the WHOLE screen — no forced top inset.
+    // The blur header (120dp) sits ON TOP of the content as a sibling.
+    // Screens read LocalCoralXWindowInsets to know how much top padding
+    // to add (status bar + header height) so content starts below the header.
+    // This matches old Coral's layout — content scrolls UNDER the blur.
     val insets = WindowInsets(
-        top = effTopDp + 120.dp,
-        bottom = 52.dp + 10.dp + effBottomDp + 16.dp
+        top = effTopDp + 56.dp,    // status bar + header row height
+        bottom = effBottomDp + 80.dp // nav bar + tab capsule + FAB height
     )
 
     val graphicsLayer = rememberGraphicsLayer()
@@ -86,12 +91,14 @@ fun CoralXScaffold(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // Content
+            // Content — fills the WHOLE screen (no padding).
+            // Each screen reads LocalCoralXWindowInsets to add its own top/bottom
+            // padding via LazyColumn's contentPadding. This way content can scroll
+            // UNDER the blur header (which is rendered as a sibling below).
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .layerBackdrop(glassBackdrop)
-                    .padding(insets.asPaddingValues())
             ) {
                 content()
             }
