@@ -201,13 +201,15 @@ private fun SpeedDialTile(
                 onClick = onClick
             )
     ) {
-        // Background gradient
+        // Background gradient (or flat color for empty slots)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    if (isEmpty) Color(0xFF1A1A1A).copy(alpha = 0.5f)
-                    else Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)))
+                .then(
+                    if (isEmpty) Modifier.background(Color(0xFF1A1A1A).copy(alpha = 0.5f))
+                    else Modifier.background(
+                        Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)))
+                    )
                 ),
             contentAlignment = Alignment.Center
         ) {
