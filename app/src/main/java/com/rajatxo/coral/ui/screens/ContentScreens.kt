@@ -285,16 +285,15 @@ fun QuickPicksScreen() {
             }
         }
 
-        // 3. Speed Dial — pass real songs (first 8), clicking plays the song
+        // 3. Speed Dial — pass 26 songs for 3 pages (8+1 dice + 9 + 9)
         if (speedDialEnabled) {
             item {
                 SpeedDialSection(
-                    songs = songs.take(8),
+                    songs = songs.take(26),
                     onTileClick = { song ->
                         com.rajatxo.coral.playback.PlaybackConnection.playSong(song, songs)
                     },
                     onDiceClick = {
-                        // Shuffle: pick a random song and play it
                         if (songs.isNotEmpty()) {
                             val random = songs.random()
                             com.rajatxo.coral.playback.PlaybackConnection.playSong(random, songs)

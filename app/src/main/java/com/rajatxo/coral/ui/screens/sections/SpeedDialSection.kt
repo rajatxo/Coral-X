@@ -3,7 +3,6 @@ package com.rajatxo.coral.ui.screens.sections
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -14,10 +13,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -50,13 +51,15 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
 import com.rajatxo.coral.util.BlurTransformation
 
 /**
- * ★ SpeedDialSection — 3×3 grid of song tiles inside a glass container.
+ * ★ SpeedDialSection — paginated 3×3 grid of song tiles.
  *
- * Ported from old Coral's SpeedDialSection. Each tile shows real album art
- * with Spiral 2.0 blur-blend (blurred bottom + sharp top + DstIn blend)
- * and the song title overlaid at the bottom (no artist — matches old Coral).
+ * Ported from old Coral's SpeedDialSection. Uses HorizontalPager so the
+ * user can swipe between pages of songs (like old Coral — 3 pages max).
  *
- * Last tile (bottom-right) = shuffle/dice button.
+ * Page 1: 8 songs + 1 dice (dice is the last slot on page 1)
+ * Pages 2+: 9 songs per page
+ *
+ * Each tile shows real album art with Spiral 2.0 blur-blend + song title.
  */
 @Composable
 fun SpeedDialSection(
@@ -66,6 +69,17 @@ fun SpeedDialSection(
     onTileClick: (Song) -> Unit = {},
     onDiceClick: () -> Unit = {}
 ) {
+    // ─── Pagination math (same as old Coral) ──
+    val columns = 3
+    val rows = 3
+    val itemsPerPage = columns * rows  // 9
+    val totalSlots = songs.size + 1    // +1 for the dice
+    val pageCount = (totalSlots + itemsPerPage - 1) / itemsPerPage
+    val pagerState = rememberPagerState(pageCount = { pageCount.coerceAtLeast(1) })
+
+    // Tile size — each tile is 100dp (same as before)
+    val tileHeight = 100.dp
+
     Column(modifier = modifier.fillMaxWidth()) {
         // Header
         Row(
@@ -102,46 +116,60 @@ fun SpeedDialSection(
             }
         }
 
-        // 3×3 grid — tiles arranged directly, NO surrounding container.
-        // Matches old Coral's Astra mode: each tile is open (no glass box around them).
-        Column(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            for (row in 0 until 3) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    for (col in 0 until 3) {
-                        val index = row * 3 + col
-                        val isDice = (index == 8)
+        // ★ HorizontalPager — swipe between pages of songs
+        // No surrounding container — tiles arranged openly (matches old Coral Astra mode).
+        HorizontalPager(
+            state = pagerState,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp),
+            pageSpacing = 12.dp,
+            beyondViewportPageCount = 1,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(tileHeight * rows)
+        ) { page ->
+            Column(modifier = Modifier.fillMaxSize()) {
+                for (row in 0 until rows) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        for (col in 0 until columns) {
+                            val itemIndex = row * columns + col
+                            val globalItemIndex = page * itemsPerPage + itemIndex
 
-                        if (isDice) {
-                            DiceTile(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(4.dp)
-                                    .height(100.dp),
-                                onClick = onDiceClick
-                            )
-                        } else {
-                            val song = songs.getOrNull(index)
-                            if (song != null) {
-                                SpeedDialTile(
-                                    song = song,
-                                    onClick = { onTileClick(song) },
+                            // The dice button is the last slot on the FIRST page
+                            val isDiceSlot = (globalItemIndex == itemsPerPage - 1)
+
+                            if (isDiceSlot) {
+                                DiceTile(
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(4.dp)
-                                        .height(100.dp)
+                                        .height(tileHeight),
+                                    onClick = onDiceClick
                                 )
                             } else {
-                                EmptyTile(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(4.dp)
-                                        .height(100.dp)
-                                )
+                                // Adjust index to account for the dice slot on page 1
+                                val actualIndex = if (globalItemIndex < itemsPerPage - 1) {
+                                    globalItemIndex
+                                } else {
+                                    globalItemIndex - 1
+                                }
+                                val song = songs.getOrNull(actualIndex)
+                                if (song != null) {
+                                    SpeedDialTile(
+                                        song = song,
+                                        onClick = { onTileClick(song) },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(4.dp)
+                                            .height(tileHeight)
+                                    )
+                                } else {
+                                    Spacer(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(4.dp)
+                                            .height(tileHeight)
+                                    )
+                                }
                             }
                         }
                     }
@@ -156,13 +184,6 @@ private fun songPlaceholderColor(songId: Long): Color {
     return Color.hsv(hue = hue, saturation = 0.45f, value = 0.22f)
 }
 
-/**
- * SpeedDialTile — Spiral 2.0 blur-blend album art with song title overlay.
- * Matches old Coral's SpeedDialCard exactly:
- *   - Layer 1: blurred album art (full tile)
- *   - Layer 2: sharp album art (top 85%, DstIn blend at bottom)
- *   - Title at bottom (on the blurred part)
- */
 @Composable
 private fun SpeedDialTile(
     song: Song,
@@ -193,7 +214,6 @@ private fun SpeedDialTile(
             )
     ) {
         // ═══ Spiral 2.0-style album art blur-blend ═══
-        // Layer 1 (bottom): BLURRED album art
         if (song.albumArtUri != null) {
             val blurredRequest = remember(song.albumArtUri) {
                 ImageRequest.Builder(context)
@@ -228,7 +248,7 @@ private fun SpeedDialTile(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.85f)
+                    .height(tileHeight * 0.85f)
                     .align(Alignment.TopCenter)
                     .graphicsLayer {
                         compositingStrategy = CompositingStrategy.Offscreen
@@ -259,7 +279,7 @@ private fun SpeedDialTile(
             }
         }
 
-        // Title at the bottom (on the blurred part) — song title only, no artist
+        // Title at the bottom (song title only, no artist — matches old Coral)
         Text(
             text = song.title,
             color = Color.White,
@@ -271,24 +291,6 @@ private fun SpeedDialTile(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = 8.dp, end = 4.dp, bottom = 4.dp)
-        )
-    }
-}
-
-@Composable
-private fun EmptyTile(modifier: Modifier = Modifier) {
-    val tileShape = RoundedCornerShape(8.dp)
-    Box(
-        modifier = modifier
-            .clip(tileShape)
-            .background(Color(0xFF1A1A1A).copy(alpha = 0.5f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "+",
-            color = Color.White.copy(alpha = 0.2f),
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold
         )
     }
 }
