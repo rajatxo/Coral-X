@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -161,6 +162,15 @@ fun QuickPicksScreen() {
     // ★ Real songs from MediaStore (with cache for instant render)
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
 
+    // ★ Refresh key — bumped on pull-to-refresh. Re-rolls the random seed
+    //   so Speed Dial + More Picks get new song selections.
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val launchSeed = remember(refreshKey) { kotlin.random.Random.nextInt() }
+
+    // ★ Today's Top Card state — shown when user taps a Today's Top cover
+    var topCardSong by remember { mutableStateOf<Song?>(null) }
+    var showTopCard by remember { mutableStateOf(false) }
+
     // ★ Palette-based background gradient (same as old Coral)
     // Extracts dominant color from the first song's album art → vibrant
     // gradient at top (behind blur header) fading to near-black at bottom.
@@ -238,7 +248,8 @@ fun QuickPicksScreen() {
         placeholderSongs.take(10)
     }
     val moreSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
-        songs.take(100).map { it.toPlaceholder() }
+        // ★ Shuffled with launchSeed so refresh re-rolls the selection
+        songs.shuffled(kotlin.random.Random(launchSeed + 2)).take(100).map { it.toPlaceholder() }
     } else {
         placeholderSongs.takeLast(10)
     }
@@ -277,8 +288,9 @@ fun QuickPicksScreen() {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
-                // Re-scan MediaStore + roll a new random seed for speed dial
+                // Re-scan MediaStore + bump refreshKey (re-rolls speed dial + more picks)
                 isRefreshing = true
+                refreshKey++
                 scope.launch {
                     val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
                     if (scanned.isNotEmpty()) {
@@ -313,16 +325,22 @@ fun QuickPicksScreen() {
             item {
                 TodaysTopSection(
                     songs = songs,
+                    onCapsuleClick = { tappedSong ->
+                        // Show the TodaysTopCard for this song
+                        topCardSong = tappedSong
+                        showTopCard = true
+                    },
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
             }
         }
 
-        // 3. Speed Dial — pass 26 songs for 3 pages + pull progress for bug indicator
+        // 3. Speed Dial — pass 26 songs + launchSeed for refresh re-roll
         if (speedDialEnabled) {
             item {
                 SpeedDialSection(
                     songs = songs.take(26),
+                    launchSeed = launchSeed,
                     pullProgress = ptrState.distanceFraction,
                     isRefreshing = isRefreshing,
                     onTileClick = { song ->
@@ -394,6 +412,13 @@ fun QuickPicksScreen() {
             }
         }
         }
+
+        // ★ TodaysTopCard — floating glass capsule, shown when user taps a Today's Top cover
+        com.rajatxo.coral.ui.components.TodaysTopCard(
+            visible = showTopCard,
+            song = topCardSong,
+            onDismiss = { showTopCard = false }
+        )
         }
     }
 }

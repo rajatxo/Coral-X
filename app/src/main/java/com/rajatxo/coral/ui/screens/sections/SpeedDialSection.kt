@@ -76,6 +76,7 @@ import com.rajatxo.coral.util.BlurTransformation
 fun SpeedDialSection(
     modifier: Modifier = Modifier,
     songs: List<Song> = emptyList(),
+    launchSeed: Int = 0,
     pullProgress: Float = 0f,
     isRefreshing: Boolean = false,
     onHeaderClick: () -> Unit = {},
@@ -87,10 +88,7 @@ fun SpeedDialSection(
     val speedDialMode by com.rajatxo.coral.data.prefs.SpeedDialModeManager.mode.collectAsState()
     val playbackHistory by com.rajatxo.coral.data.prefs.PlaybackHistory.history.collectAsState()
 
-    // Random seed — changes on every app launch (so songs are different each time)
-    val launchSeed = remember { kotlin.random.Random.nextInt() }
-
-    // ★ Build the speed dial song list (pinned first, then random/last-played)
+    // ★ Use the launchSeed passed from QuickPicksScreen (re-rolls on refresh)
     val speedDialSongs = remember(songs.size, pinnedIds, launchSeed, speedDialMode, playbackHistory) {
         if (songs.isEmpty()) emptyList()
         else {

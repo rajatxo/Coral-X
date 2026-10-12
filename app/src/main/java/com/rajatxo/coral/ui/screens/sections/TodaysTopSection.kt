@@ -53,7 +53,7 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
 fun TodaysTopSection(
     modifier: Modifier = Modifier,
     songs: List<Song> = emptyList(),
-    onCapsuleClick: () -> Unit = {}
+    onCapsuleClick: (Song) -> Unit = {}
 ) {
     // ★ Read daily play history — shows top-played songs today
     val dailyPlays by PlaybackHistory.dailyPlays.collectAsState()
@@ -123,7 +123,10 @@ fun TodaysTopSection(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = onCapsuleClick
+                            onClick = {
+                                // Pass the first song of this capsule (or the second if first is null)
+                                (song1 ?: song2)?.let { onCapsuleClick(it) }
+                            }
                         ),
                     contentAlignment = Alignment.Center
                 ) {
