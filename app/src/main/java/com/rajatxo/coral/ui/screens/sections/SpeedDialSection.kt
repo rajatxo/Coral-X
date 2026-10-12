@@ -115,10 +115,10 @@ fun SpeedDialSection(
             }
         }
 
-        // ★ HorizontalPager — swipe between pages of songs
-        // No surrounding container — tiles arranged openly (matches old Coral Astra mode).
-        // Use aspectRatio(1f) for each tile so they're always perfect squares,
-        // regardless of screen width (fixes the "thin last row" issue).
+        // ★ HorizontalPager — swipe between pages of songs.
+        // Fixed tile size (110dp) for BOTH width and height → perfect squares.
+        // This is old Coral's exact approach: targetItemSize = 110.dp.
+        val tileWidth = 110.dp
         HorizontalPager(
             state = pagerState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp),
@@ -126,13 +126,12 @@ fun SpeedDialSection(
             beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxWidth()
+                .height(tileWidth * rows)
         ) { page ->
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxSize()) {
                 for (row in 0 until rows) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         for (col in 0 until columns) {
@@ -145,8 +144,8 @@ fun SpeedDialSection(
                             if (isDiceSlot) {
                                 DiceTile(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f)
+                                        .width(tileWidth)
+                                        .height(tileWidth)
                                         .padding(4.dp),
                                     onClick = onDiceClick
                                 )
@@ -163,15 +162,15 @@ fun SpeedDialSection(
                                         song = song,
                                         onClick = { onTileClick(song) },
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .aspectRatio(1f)
+                                            .width(tileWidth)
+                                            .height(tileWidth)
                                             .padding(4.dp)
                                     )
                                 } else {
                                     Spacer(
                                         modifier = Modifier
-                                            .weight(1f)
-                                            .aspectRatio(1f)
+                                            .width(tileWidth)
+                                            .height(tileWidth)
                                             .padding(4.dp)
                                     )
                                 }
