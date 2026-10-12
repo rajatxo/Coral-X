@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +36,7 @@ import com.rajatxo.coral.theme.CoralXTheme
 import com.rajatxo.coral.ui.foundation.CoralXScaffold
 import com.rajatxo.coral.ui.screens.PlaylistsScreen
 import com.rajatxo.coral.ui.screens.QuickPicksScreen
+import com.rajatxo.coral.ui.screens.SettingsScreen
 import com.rajatxo.coral.ui.screens.SongsScreen
 import com.rajatxo.coral.ui.util.CoralTab
 import com.rajatxo.coral.update.UpdateChecker
@@ -55,8 +55,8 @@ private fun CoralXRoot() {
     val context = LocalContext.current
     var showUpdateDialog by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateResult.UpdateAvailable?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
 
-    // Check for updates on launch — uses user's channel preference
     LaunchedEffect(Unit) {
         val channel = com.rajatxo.coral.data.prefs.UpdateChannelManager.channel.value
         val result = UpdateChecker.checkForUpdate(BuildConfig.VERSION_CODE, channel)
@@ -64,6 +64,11 @@ private fun CoralXRoot() {
             updateInfo = result
             showUpdateDialog = true
         }
+    }
+
+    if (showSettings) {
+        SettingsScreen(onBack = { showSettings = false })
+        return
     }
 
     var activeTab by remember { mutableStateOf(CoralTab.QuickPicks) }
@@ -77,7 +82,8 @@ private fun CoralXRoot() {
         CoralXScaffold(
             title = title,
             activeTab = activeTab,
-            onTabSelected = { activeTab = it }
+            onTabSelected = { activeTab = it },
+            onSettingsClick = { showSettings = true }
         ) {
             when (activeTab) {
                 CoralTab.QuickPicks -> QuickPicksScreen()
@@ -86,32 +92,18 @@ private fun CoralXRoot() {
             }
         }
 
-        // ★ Update dialog — shows when a new version is available
         if (showUpdateDialog && updateInfo != null) {
             UpdateDialog(
                 versionName = updateInfo!!.versionName,
                 releaseNotes = updateInfo!!.releaseNotes,
                 isStable = updateInfo!!.isStable,
-                onDownload = {
-                    UpdateChecker.openTelegramDownload(context)
-                },
-                onDismiss = {
-                    showUpdateDialog = false
-                }
+                onDownload = { UpdateChecker.openTelegramDownload(context) },
+                onDismiss = { showUpdateDialog = false }
             )
         }
     }
 }
 
-/**
- * ★ Update dialog — "New version available" with Download button.
- *
- * Download button opens the Telegram support group where APKs are posted.
- * User downloads the APK from Telegram, installs it (Android shows the
- * "install unknown app" permission dialog).
- *
- * This keeps the project closed-source — users never see the GitHub repo.
- */
 @Composable
 private fun UpdateDialog(
     versionName: String,
@@ -140,7 +132,7 @@ private fun UpdateDialog(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = {} // prevent click-through to dismiss
+                    onClick = {}
                 )
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -159,7 +151,6 @@ private fun UpdateDialog(
                 fontWeight = FontWeight.Medium
             )
             Spacer(modifier = Modifier.height(4.dp))
-            // Channel badge (Stable = green, Nightly = orange)
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
@@ -187,7 +178,6 @@ private fun UpdateDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Later button
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -203,7 +193,6 @@ private fun UpdateDialog(
                 ) {
                     Text(text = "Later", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
-                // Download button → opens Telegram
                 Box(
                     modifier = Modifier
                         .weight(1f)
