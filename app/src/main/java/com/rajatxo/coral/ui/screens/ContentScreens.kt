@@ -1,7 +1,9 @@
 package com.rajatxo.coral.ui.screens
 
+import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -152,11 +154,14 @@ fun QuickPicksScreen() {
     val morePicksEnabled by SectionToggleManager.morePicksEnabled.collectAsState()
 
     // ★ Real songs from MediaStore (with cache for instant render)
-    // 1. Load cache synchronously on first composition → instant render
-    // 2. Scan MediaStore in background → update if different
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
 
-    // Sync cache load — runs once when the screen first composes
+    // ★ Palette-based background gradient (same as old Coral)
+    // Extracts dominant color from the first song's album art → vibrant
+    // gradient at top (behind blur header) fading to near-black at bottom.
+    // This gives the blur header something colorful to sample → visible blur.
+    var palette by remember { mutableStateOf(com.rajatxo.coral.util.CoralPalette.Default) }
+
     LaunchedEffect(Unit) {
         // Load cache first (instant, ~5-20ms)
         val cached = withContext(Dispatchers.IO) { SongCache.load(context) }
@@ -166,16 +171,57 @@ fun QuickPicksScreen() {
         val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
         if (scanned.isNotEmpty()) {
             songs = scanned
-            // Save to cache for next launch
             withContext(Dispatchers.IO) { SongCache.save(context, scanned) }
         }
     }
 
-    // For now, the Recent and More Picks sections still use placeholder colors
-    // (until the SquareCard / LandscapeCard components are updated to load
-    // real album art via Coil3 + albumArtUri). We convert real Song objects
-    // to PlaceholderSong wrappers so the existing cards keep rendering.
-    // The songs list is loaded and ready for when we wire those components.
+    // Extract palette from the first song's album art (for the background gradient)
+    LaunchedEffect(songs) {
+        val firstSongWithArt = songs.firstOrNull { it.albumArtUri != null }
+        if (firstSongWithArt != null) {
+            // Check cache first
+            com.rajatxo.coral.util.PaletteCache.get(firstSongWithArt.albumArtUri)?.let { palette = it }
+            // Extract in background
+            val extracted = withContext(Dispatchers.IO) {
+                com.rajatxo.coral.util.extractPalette(context, firstSongWithArt.albumArtUri)
+            }
+            if (extracted != null) {
+                palette = extracted
+                com.rajatxo.coral.util.PaletteCache.put(firstSongWithArt.albumArtUri, extracted)
+            }
+        }
+    }
+
+    // ★ Animated background gradient colors (smooth transition when palette changes)
+    val vibrantTop by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.85f),
+        animationSpec = tween(800), label = "bgVibrantTop"
+    )
+    val fade1 by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.65f),
+        animationSpec = tween(800), label = "bgFade1"
+    )
+    val fade2 by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.45f),
+        animationSpec = tween(800), label = "bgFade2"
+    )
+    val fade3 by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.28f),
+        animationSpec = tween(800), label = "bgFade3"
+    )
+    val animatedTop by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.18f),
+        animationSpec = tween(800), label = "bgTop"
+    )
+    val animatedMid by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.08f),
+        animationSpec = tween(800), label = "bgMid"
+    )
+    val animatedBottom by animateColorAsState(
+        targetValue = Color(0xFF05050A),
+        animationSpec = tween(800), label = "bgBottom"
+    )
+
     val recentSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
         songs.sortedByDescending { it.dateAdded }.take(10).map { it.toPlaceholder() }
     } else {
@@ -187,22 +233,42 @@ fun QuickPicksScreen() {
         placeholderSongs.takeLast(10)
     }
 
-    // ★ Use the scaffold's computed insets (status bar + header height + bottom nav)
     val density = LocalDensity.current
     val insets = LocalCoralXWindowInsets.current
     val topPadding = with(density) { insets.getTop(density).toDp() }
     val bottomPadding = with(density) { insets.getBottom(density).toDp() }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            top = topPadding,
-            bottom = bottomPadding,
-            start = 20.dp,
-            end = 20.dp
-        ),
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    // ★ Background: solid dark base + palette gradient on top
+    // The gradient fills the ENTIRE screen, including behind the blur header.
+    // This gives the blur vibrant colors to sample → visible frosted-glass effect.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF05050A))
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f  to vibrantTop,
+                        0.10f to fade1,
+                        0.15f to fade2,
+                        0.20f to fade3,
+                        0.30f to animatedTop,
+                        0.55f to animatedMid,
+                        1.0f  to animatedBottom
+                    )
+                )
+            )
     ) {
+        LazyColumn(
+            contentPadding = PaddingValues(
+                top = topPadding,
+                bottom = bottomPadding,
+                start = 20.dp,
+                end = 20.dp
+            ),
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
         // 1. Greeting + Mood
         if (greetingEnabled) {
             item { GreetingMoodHeader(userName = "Rajat", modifier = Modifier.padding(bottom = 6.dp)) }
@@ -268,6 +334,7 @@ fun QuickPicksScreen() {
                     }
                 }
             }
+        }
         }
     }
 }
