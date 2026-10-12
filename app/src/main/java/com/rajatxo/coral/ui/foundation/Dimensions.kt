@@ -18,4 +18,6 @@ object Dimensions {
     val ContentPaddingHorizontal: Dp = 20.dp
     val MinBottomSystemInset: Dp = 24.dp
     val MiniPlayerHeight: Dp = 64.dp
+    /** Gap between the header row and the first piece of content. */
+    val ContentTopGap: Dp = 28.dp
 }

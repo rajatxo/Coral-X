@@ -1,5 +1,6 @@
 package com.rajatxo.coral.ui.screens.sections
 
+import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -30,11 +31,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
@@ -42,19 +46,12 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
 /**
  * ★ SpeedDialSection — 3×3 grid of song tiles inside a glass container.
  *
- * Ported from old Coral's SpeedDialSection, adapted for Coral X.
- * Now accepts real [Song] objects from the music scanner. Each tile shows
- * the song title with a deterministic color derived from the song ID.
+ * Ported from old Coral's SpeedDialSection. Each tile shows real album art
+ * (loaded via Coil3) with the song title overlaid at the bottom.
  *
- * Glass container: RoundedCornerShape(20dp) with dark translucent bg
- * + subtle border. Same look as old Coral.
+ * Last tile (bottom-right) = shuffle/dice button.
  *
- * Last tile (bottom-right) = dice randomize button.
- *
- * @param songs The songs to display (up to 8). If fewer than 8, empty
- *   slots show a "+" placeholder. If more, only first 8 are shown.
- * @param onTileClick Called with the song that was clicked.
- * @param onDiceClick Called when the dice (randomize) button is clicked.
+ * @param songs The songs to display (up to 8). If fewer, empty slots show "+".
  */
 @Composable
 fun SpeedDialSection(
@@ -131,9 +128,7 @@ fun SpeedDialSection(
                             val song = songs.getOrNull(index)
                             if (song != null) {
                                 SpeedDialTile(
-                                    title = song.title,
-                                    artist = song.artist,
-                                    color = songPlaceholderColor(song.id),
+                                    song = song,
                                     onClick = { onTileClick(song) },
                                     modifier = Modifier
                                         .weight(1f)
@@ -141,13 +136,7 @@ fun SpeedDialSection(
                                         .height(100.dp)
                                 )
                             } else {
-                                // Empty slot — placeholder
-                                SpeedDialTile(
-                                    title = "",
-                                    artist = "",
-                                    color = Color(0xFF1A1A1A),
-                                    isEmpty = true,
-                                    onClick = {},
+                                EmptyTile(
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(4.dp)
@@ -163,9 +152,8 @@ fun SpeedDialSection(
 }
 
 /**
- * Derive a stable, dark-ish color from a song ID for the tile background.
- * Each song gets a consistent hue based on its ID so tiles look varied
- * but stable across recompositions.
+ * Derive a stable, dark-ish color from a song ID for the tile background
+ * (fallback when no album art is available).
  */
 private fun songPlaceholderColor(songId: Long): Color {
     val hue = (songId % 360).toFloat()
@@ -174,13 +162,11 @@ private fun songPlaceholderColor(songId: Long): Color {
 
 @Composable
 private fun SpeedDialTile(
-    title: String,
-    artist: String,
-    color: Color,
+    song: Song,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    isEmpty: Boolean = false
+    modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -190,6 +176,8 @@ private fun SpeedDialTile(
     )
 
     val tileShape = RoundedCornerShape(8.dp)
+    val fallbackColor = songPlaceholderColor(song.id)
+
     Box(
         modifier = modifier
             .scale(scale)
@@ -201,50 +189,92 @@ private fun SpeedDialTile(
                 onClick = onClick
             )
     ) {
-        // Background gradient (or flat color for empty slots)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (isEmpty) Modifier.background(Color(0xFF1A1A1A).copy(alpha = 0.5f))
-                    else Modifier.background(
-                        Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isEmpty) {
-                Text(
-                    text = "+",
-                    color = Color.White.copy(alpha = 0.2f),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            } else {
+        // Background: album art (via Coil3) or color gradient fallback
+        if (song.albumArtUri != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(song.albumArtUri)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(fallbackColor, fallbackColor.copy(alpha = 0.5f))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
                     imageVector = CoralXIcons.Music,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(24.dp)
+                    tint = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }
 
-        // Title at bottom (only for non-empty tiles)
-        if (!isEmpty && title.isNotBlank()) {
+        // Gradient overlay at bottom for text readability
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                    )
+                )
+        )
+
+        // Song title + artist at bottom
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(start = 8.dp, end = 4.dp, bottom = 6.dp)
+        ) {
             Text(
-                text = title,
+                text = song.title,
                 color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
                 fontFamily = CalSansFamily,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 8.dp, end = 4.dp, bottom = 6.dp)
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = song.artist,
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 10.sp,
+                fontFamily = CalSansFamily,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+private fun EmptyTile(modifier: Modifier = Modifier) {
+    val tileShape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = modifier
+            .clip(tileShape)
+            .background(Color(0xFF1A1A1A).copy(alpha = 0.5f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "+",
+            color = Color.White.copy(alpha = 0.2f),
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
