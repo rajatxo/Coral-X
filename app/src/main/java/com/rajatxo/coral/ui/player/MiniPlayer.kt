@@ -368,6 +368,5 @@ fun MiniPlayer(
                 }
             }
         }
-        }
     }
 }
