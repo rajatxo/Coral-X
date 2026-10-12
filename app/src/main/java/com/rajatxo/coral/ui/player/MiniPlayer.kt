@@ -45,7 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorControls
+import com.kyant.backdrop.effects.vibrancy
 import com.rajatxo.coral.playback.PlaybackConnection
+import com.rajatxo.coral.ui.foundation.LocalGlassBackdrop
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
 import com.rajatxo.coral.ui.util.consistentNavBarPadding
@@ -97,6 +102,9 @@ fun MiniPlayer(
     var totalDragY by remember { mutableStateOf(0f) }
 
     val pillShape: Shape = RoundedCornerShape(32.dp)
+
+    // ★ Read the glass backdrop from the scaffold (for real frosted-glass blur)
+    val backdrop = LocalGlassBackdrop.current
 
     Box(
         modifier = Modifier
@@ -181,9 +189,38 @@ fun MiniPlayer(
                 )
             }
     ) {
-        // Frosted-glass pill background
-        Box(
-            modifier = Modifier
+        // Frosted-glass pill background — uses kyant drawBackdrop when available
+        // (same AGSL real-time blur as the nav bar + search FAB).
+        // Falls back to flat dark background when no backdrop (shouldn't happen).
+        val bodyModifier = if (backdrop != null) {
+            Modifier
+                .width(240.dp)
+                .height(64.dp)
+                .clip(pillShape)
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { pillShape },
+                    effects = {
+                        vibrancy()
+                        colorControls(
+                            brightness = 0.05f,
+                            contrast = 1f,
+                            saturation = 1.3f
+                        )
+                        blur(18f.dp.toPx())  // AGSL real-time backdrop blur
+                    },
+                    onDrawSurface = {
+                        drawRect(Color.Black.copy(alpha = 0.35f))
+                    }
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.2f), pillShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onExpand
+                )
+        } else {
+            Modifier
                 .width(240.dp)
                 .height(64.dp)
                 .clip(pillShape)
@@ -194,7 +231,8 @@ fun MiniPlayer(
                     indication = null,
                     onClick = onExpand
                 )
-        ) {
+        }
+        Box(modifier = bodyModifier) {
             Row(
                 modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically
@@ -319,7 +357,7 @@ fun MiniPlayer(
                             indication = null,
                             onClick = { playback.next() }
                         ),
-                    contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = CoralXIcons.SkipNext,
@@ -329,6 +367,7 @@ fun MiniPlayer(
                     )
                 }
             }
+        }
         }
     }
 }

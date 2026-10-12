@@ -89,7 +89,10 @@ fun CoralXScaffold(
         drawContent()
     }
 
-    CompositionLocalProvider(LocalCoralXWindowInsets provides insets) {
+    CompositionLocalProvider(
+        LocalCoralXWindowInsets provides insets,
+        LocalGlassBackdrop provides glassBackdrop
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -212,14 +215,23 @@ fun CoralXScaffold(
                 }
             }
 
-            // ★ Mini player — sits ABOVE the tab capsule + FAB
-            // Rendered as a slot so MainActivity can pass in the real MiniPlayer.
-            // Only visible when a song is loaded (the MiniPlayer composable
-            // checks PlaybackConnection.currentSong internally).
+            // ★ Mini player — sits 10dp ABOVE the tab capsule (like old Coral).
+            // Old Coral math: navBarCenterFromBottom + (capsuleHeight/2) + 10dp gap.
+            // Here: the tab capsule Row has bottom padding = effBottomDp.
+            //   Tab capsule height = 52dp. So tab capsule TOP is at:
+            //     effBottomDp + 52dp (from screen bottom)
+            //   Mini player bottom = tab capsule top + 10dp gap
+            //     = effBottomDp + 52dp + 10dp
+            //   But effBottomDp is already applied inside MiniPlayer via
+            //   consistentNavBarPadding, so we subtract it here.
+            val miniPlayerGapFromNavBar = 10.dp
+            val tabCapsuleHeight = 52.dp
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = effBottomDp + Dimensions.NavBarHeight + Dimensions.BottomStackGap)
+                    .padding(
+                        bottom = effBottomDp + tabCapsuleHeight + miniPlayerGapFromNavBar
+                    )
             ) {
                 miniPlayer()
             }
