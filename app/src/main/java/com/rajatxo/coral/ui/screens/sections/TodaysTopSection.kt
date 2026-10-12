@@ -1,5 +1,6 @@
 package com.rajatxo.coral.ui.screens.sections
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,25 +26,32 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
+import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
 
 /**
- * ★ TodaysTopSection — 3 capsule stories with placeholder covers.
+ * ★ TodaysTopSection — 3 capsule stories with album art.
  *
- * Ported from old Coral. Since we don't have music scanning yet, this
- * shows placeholder capsules. When playback history is added, these will
- * show the top 6 most-played songs today.
+ * Ported from old Coral. Now accepts real [Song] objects.
+ * Each capsule shows 2 album art circles from the song's albumArtUri.
  *
- * Each capsule is a 56dp pill with gradient border + 2 cover circles.
+ * @param songs Top songs (up to 6). Each capsule uses 2 songs, so 3 capsules
+ *   need 6 songs. If fewer, capsules show placeholder "+" circles.
  */
 @Composable
 fun TodaysTopSection(
     modifier: Modifier = Modifier,
+    songs: List<Song> = emptyList(),
     onCapsuleClick: () -> Unit = {}
 ) {
+    // Default placeholder colors (used when no songs available)
     val placeholderColors = listOf(
         Color(0xFFFF6B6B), Color(0xFFFFD166), Color(0xFF6B9EFF),
         Color(0xFFFF8FAB), Color(0xFF51CF66), Color(0xFFB197FC)
@@ -79,8 +87,12 @@ fun TodaysTopSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             for (i in 0 until 3) {
-                val color1 = placeholderColors[i * 2]
-                val color2 = placeholderColors[i * 2 + 1]
+                val song1 = songs.getOrNull(i * 2)
+                val song2 = songs.getOrNull(i * 2 + 1)
+
+                val color1 = if (song1 != null) songPlaceholderColor(song1.id) else placeholderColors[i * 2]
+                val color2 = if (song2 != null) songPlaceholderColor(song2.id) else placeholderColors[i * 2 + 1]
+
                 val capsuleShape = RoundedCornerShape(28.dp)
                 val borderBrush = Brush.horizontalGradient(listOf(color1, color2))
                 val bgBrush = Brush.horizontalGradient(
@@ -105,31 +117,60 @@ fun TodaysTopSection(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Cover slot 1 (placeholder)
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(color1.copy(alpha = 0.7f))
-                                .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "+", color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-                        // Cover slot 2 (placeholder)
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(color2.copy(alpha = 0.7f))
-                                .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "+", color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
+                        // Cover slot 1
+                        AlbumArtCircle(
+                            artUri = song1?.albumArtUri,
+                            placeholderColor = color1
+                        )
+                        // Cover slot 2
+                        AlbumArtCircle(
+                            artUri = song2?.albumArtUri,
+                            placeholderColor = color2
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AlbumArtCircle(
+    artUri: Uri?,
+    placeholderColor: Color
+) {
+    val context = LocalContext.current
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(placeholderColor.copy(alpha = 0.7f))
+            .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (artUri != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(artUri)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            Text(
+                text = "+",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * Derive a stable color from a song ID (same as SpeedDialSection).
+ */
+private fun songPlaceholderColor(songId: Long): Color {
+    val hue = (songId % 360).toFloat()
+    return Color.hsv(hue = hue, saturation = 0.45f, value = 0.22f)
 }

@@ -74,7 +74,8 @@ data class PlaceholderSong(
     val id: Long,
     val title: String,
     val artist: String,
-    val color: Color
+    val color: Color,
+    val albumArtUri: android.net.Uri? = null
 )
 
 /**
@@ -82,8 +83,8 @@ data class PlaceholderSong(
  * be rendered by the existing SquareCard / LandscapeCard components.
  *
  * The color is derived deterministically from the song's id (hash → hue)
- * so each song gets a stable, distinct placeholder color until we wire
- * Coil3 + albumArtUri to load real album art.
+ * so each song gets a stable, distinct placeholder color.
+ * albumArtUri is passed through for Coil3 to load real album art.
  */
 private fun Song.toPlaceholder(): PlaceholderSong {
     val hue = (id % 360).toFloat()
@@ -92,7 +93,8 @@ private fun Song.toPlaceholder(): PlaceholderSong {
         id = id,
         title = title,
         artist = artist,
-        color = color
+        color = color,
+        albumArtUri = albumArtUri
     )
 }
 
@@ -205,14 +207,24 @@ fun QuickPicksScreen() {
             item { GreetingMoodHeader(userName = "Rajat", modifier = Modifier.padding(bottom = 6.dp)) }
         }
 
-        // 2. Today's Top
+        // 2. Today's Top — pass real songs (top 6 by dateAdded)
         if (todaysTopEnabled) {
-            item { TodaysTopSection(modifier = Modifier.padding(bottom = 6.dp)) }
+            item {
+                TodaysTopSection(
+                    songs = songs.take(6),
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
         }
 
-        // 3. Speed Dial
+        // 3. Speed Dial — pass real songs (first 8)
         if (speedDialEnabled) {
-            item { SpeedDialSection(modifier = Modifier.padding(bottom = 6.dp)) }
+            item {
+                SpeedDialSection(
+                    songs = songs.take(8),
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
         }
 
         // 4. Recent (LazyRow of SquareCards)
@@ -228,6 +240,7 @@ fun QuickPicksScreen() {
                             title = song.title,
                             artist = song.artist,
                             color = song.color,
+                            albumArtUri = song.albumArtUri,
                             modifier = Modifier.width(140.dp).height(200.dp)
                         )
                     }
@@ -248,6 +261,7 @@ fun QuickPicksScreen() {
                             title = song.title,
                             artist = song.artist,
                             color = song.color,
+                            albumArtUri = song.albumArtUri,
                             modifier = Modifier.width(160.dp).height(220.dp)
                         )
                     }
@@ -266,6 +280,7 @@ private fun SquareCard(
     title: String,
     artist: String,
     color: Color,
+    albumArtUri: android.net.Uri? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
@@ -280,7 +295,7 @@ private fun SquareCard(
                 onClick = onClick
             )
     ) {
-        // Background: solid color with gradient (placeholder for album art)
+        // Background: album art (if available) or color gradient fallback
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -291,12 +306,23 @@ private fun SquareCard(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = CoralXIcons.Music,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(48.dp)
-            )
+            if (albumArtUri != null) {
+                coil3.compose.AsyncImage(
+                    model = coil3.request.ImageRequest.Builder(LocalContext.current)
+                        .data(albumArtUri)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(48.dp)
+                )
+            }
         }
 
         // Text overlay at bottom
@@ -341,6 +367,7 @@ private fun LandscapeCard(
     title: String,
     artist: String,
     color: Color,
+    albumArtUri: android.net.Uri? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
@@ -355,7 +382,7 @@ private fun LandscapeCard(
                 onClick = onClick
             )
     ) {
-        // Background gradient placeholder
+        // Background: album art (if available) or color gradient fallback
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -366,12 +393,23 @@ private fun LandscapeCard(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = CoralXIcons.Music,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(56.dp)
-            )
+            if (albumArtUri != null) {
+                coil3.compose.AsyncImage(
+                    model = coil3.request.ImageRequest.Builder(LocalContext.current)
+                        .data(albumArtUri)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(56.dp)
+                )
+            }
         }
 
         // Text overlay

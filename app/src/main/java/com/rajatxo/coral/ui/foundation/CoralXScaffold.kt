@@ -70,14 +70,13 @@ fun CoralXScaffold(
     val effBottomDp = with(density) { maxOf(systemBottom, minBottom).toDp() }
     val effTopDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
 
-    // ★ Content fills the WHOLE screen — no forced top inset.
-    // The blur header (120dp) sits ON TOP of the content as a sibling.
-    // Screens read LocalCoralXWindowInsets to know how much top padding
-    // to add (status bar + header height) so content starts below the header.
-    // This matches old Coral's layout — content scrolls UNDER the blur.
+    // ★ Content top padding = status bar + 100dp (matches old Coral's 108dp).
+    // The blur header is 120dp tall — content starts at ~100dp, so it peeks
+    // through the bottom of the blur fade. This gives proper breathing room
+    // between the header and the first section ("Today's Top").
     val insets = WindowInsets(
-        top = effTopDp + 56.dp,    // status bar + header row height
-        bottom = effBottomDp + 80.dp // nav bar + tab capsule + FAB height
+        top = effTopDp + 100.dp,
+        bottom = effBottomDp + 80.dp
     )
 
     val graphicsLayer = rememberGraphicsLayer()
@@ -89,7 +88,15 @@ fun CoralXScaffold(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color(0xFF1A1A2E),  // subtle dark blue at top (behind blur)
+                            0.3f to Color(0xFF0A0A12),  // fade to near-black
+                            1.0f to Color(0xFF000000)   // pure black at bottom
+                        )
+                    )
+                )
         ) {
             // Content — fills the WHOLE screen (no padding).
             // Each screen reads LocalCoralXWindowInsets to add its own top/bottom
@@ -114,7 +121,9 @@ fun CoralXScaffold(
                         compositingStrategy = CompositingStrategy.Offscreen
                         clip = true
                         if (useRE) {
-                            renderEffect = BlurEffect(20.dp.toPx(), 20.dp.toPx())
+                            // 30dp blur — stronger than the old 20dp so the blur
+                            // is clearly visible even over dark content.
+                            renderEffect = BlurEffect(30.dp.toPx(), 30.dp.toPx())
                         }
                     }
                     .drawWithContent {
@@ -144,7 +153,7 @@ fun CoralXScaffold(
                                 shape = { RectangleShape },
                                 effects = {
                                     vibrancy()
-                                    blur(20f.dp.toPx())
+                                    blur(30f.dp.toPx())
                                 }
                             )
                     )

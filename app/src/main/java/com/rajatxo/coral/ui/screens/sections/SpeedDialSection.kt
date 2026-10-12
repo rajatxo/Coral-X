@@ -32,8 +32,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
 
@@ -41,28 +43,27 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
  * ★ SpeedDialSection — 3×3 grid of song tiles inside a glass container.
  *
  * Ported from old Coral's SpeedDialSection, adapted for Coral X.
- * Uses placeholder colored tiles (will show real album art when
- * music scanning is added).
+ * Now accepts real [Song] objects from the music scanner. Each tile shows
+ * the song title with a deterministic color derived from the song ID.
  *
- * Glass container: RoundedCornerShape(20.dp) with dark translucent bg
+ * Glass container: RoundedCornerShape(20dp) with dark translucent bg
  * + subtle border. Same look as old Coral.
  *
  * Last tile (bottom-right) = dice randomize button.
+ *
+ * @param songs The songs to display (up to 8). If fewer than 8, empty
+ *   slots show a "+" placeholder. If more, only first 8 are shown.
+ * @param onTileClick Called with the song that was clicked.
+ * @param onDiceClick Called when the dice (randomize) button is clicked.
  */
 @Composable
 fun SpeedDialSection(
     modifier: Modifier = Modifier,
+    songs: List<Song> = emptyList(),
     onHeaderClick: () -> Unit = {},
-    onTileClick: (Int) -> Unit = {}
+    onTileClick: (Song) -> Unit = {},
+    onDiceClick: () -> Unit = {}
 ) {
-    // Placeholder colors for the 8 song tiles + 1 dice
-    val tileColors = listOf(
-        Color(0xFF1a0a2e), Color(0xFF16213e), Color(0xFF0f3460),
-        Color(0xFF533483), Color(0xFF2d1b4e), Color(0xFF1a1a2e),
-        Color(0xFF2c1810), Color(0xFF1e3a5f)
-    )
-    val tileTitles = listOf("Blinding", "Starboy", "Tears", "Hours", "Die", "Call", "Hills", "Face")
-
     Column(modifier = modifier.fillMaxWidth()) {
         // Header
         Row(
@@ -123,18 +124,36 @@ fun SpeedDialSection(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(4.dp)
-                                    .height(100.dp)
+                                    .height(100.dp),
+                                onClick = onDiceClick
                             )
                         } else {
-                            SpeedDialTile(
-                                title = tileTitles.getOrElse(index) { "?" },
-                                color = tileColors.getOrElse(index) { Color(0xFF333333) },
-                                onClick = { onTileClick(index) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(4.dp)
-                                    .height(100.dp)
-                            )
+                            val song = songs.getOrNull(index)
+                            if (song != null) {
+                                SpeedDialTile(
+                                    title = song.title,
+                                    artist = song.artist,
+                                    color = songPlaceholderColor(song.id),
+                                    onClick = { onTileClick(song) },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(4.dp)
+                                        .height(100.dp)
+                                )
+                            } else {
+                                // Empty slot — placeholder
+                                SpeedDialTile(
+                                    title = "",
+                                    artist = "",
+                                    color = Color(0xFF1A1A1A),
+                                    isEmpty = true,
+                                    onClick = {},
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(4.dp)
+                                        .height(100.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -143,12 +162,24 @@ fun SpeedDialSection(
     }
 }
 
+/**
+ * Derive a stable, dark-ish color from a song ID for the tile background.
+ * Each song gets a consistent hue based on its ID so tiles look varied
+ * but stable across recompositions.
+ */
+private fun songPlaceholderColor(songId: Long): Color {
+    val hue = (songId % 360).toFloat()
+    return Color.hsv(hue = hue, saturation = 0.45f, value = 0.22f)
+}
+
 @Composable
 private fun SpeedDialTile(
     title: String,
+    artist: String,
     color: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isEmpty: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -170,40 +201,53 @@ private fun SpeedDialTile(
                 onClick = onClick
             )
     ) {
-        // Background gradient (placeholder for album art)
+        // Background gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)))
+                    if (isEmpty) Color(0xFF1A1A1A).copy(alpha = 0.5f)
+                    else Brush.verticalGradient(listOf(color, color.copy(alpha = 0.5f)))
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = CoralXIcons.Music,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(24.dp)
-            )
+            if (isEmpty) {
+                Text(
+                    text = "+",
+                    color = Color.White.copy(alpha = 0.2f),
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            } else {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
-        // Title at bottom
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            fontFamily = CalSansFamily,
-            maxLines = 1,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 8.dp, bottom = 6.dp)
-        )
+        // Title at bottom (only for non-empty tiles)
+        if (!isEmpty && title.isNotBlank()) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = CalSansFamily,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, end = 4.dp, bottom = 6.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun DiceTile(modifier: Modifier = Modifier) {
+private fun DiceTile(modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -211,7 +255,6 @@ private fun DiceTile(modifier: Modifier = Modifier) {
         animationSpec = spring(dampingRatio = 0.4f, stiffness = 600f),
         label = "diceScale"
     )
-    val isSpinning = remember { androidx.compose.runtime.mutableStateOf(false) }
 
     val tileShape = RoundedCornerShape(8.dp)
     Box(
@@ -222,18 +265,15 @@ private fun DiceTile(modifier: Modifier = Modifier) {
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { /* Will play random song when music is added */ }
+                onClick = onClick
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "🎲",
-            fontSize = 32.sp,
-            modifier = Modifier.graphicsLayer {
-                if (isSpinning.value) {
-                    rotationZ = 360f
-                }
-            }
+        Icon(
+            imageVector = CoralXIcons.Shuffle,
+            contentDescription = "Randomize",
+            tint = Color.White.copy(alpha = 0.7f),
+            modifier = Modifier.size(28.dp)
         )
     }
 }
