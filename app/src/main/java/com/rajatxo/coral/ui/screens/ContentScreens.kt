@@ -151,7 +151,9 @@ private val placeholderSongs = listOf(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickPicksScreen() {
+fun QuickPicksScreen(
+    onTopCardClick: (com.rajatxo.coral.domain.model.Song) -> Unit = {}
+) {
     val context = LocalContext.current
     val greetingEnabled by SectionToggleManager.greetingEnabled.collectAsState()
     val todaysTopEnabled by SectionToggleManager.todaysTopEnabled.collectAsState()
@@ -166,10 +168,6 @@ fun QuickPicksScreen() {
     //   so Speed Dial + More Picks get new song selections.
     var refreshKey by remember { mutableIntStateOf(0) }
     val launchSeed = remember(refreshKey) { kotlin.random.Random.nextInt() }
-
-    // ★ Today's Top Card state — shown when user taps a Today's Top cover
-    var topCardSong by remember { mutableStateOf<Song?>(null) }
-    var showTopCard by remember { mutableStateOf(false) }
 
     // ★ Palette-based background gradient (same as old Coral)
     // Extracts dominant color from the first song's album art → vibrant
@@ -326,9 +324,7 @@ fun QuickPicksScreen() {
                 TodaysTopSection(
                     songs = songs,
                     onCapsuleClick = { tappedSong ->
-                        // Show the TodaysTopCard for this song
-                        topCardSong = tappedSong
-                        showTopCard = true
+                        onTopCardClick(tappedSong)
                     },
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
@@ -412,15 +408,6 @@ fun QuickPicksScreen() {
             }
         }
         }
-
-        // ★ TodaysTopCard — floating glass capsule, shown when user taps a Today's Top cover
-        // Positioned at top-right (next to greeting), uses kyant backdrop from scaffold
-        com.rajatxo.coral.ui.components.TodaysTopCard(
-            visible = showTopCard,
-            song = topCardSong,
-            backdrop = com.rajatxo.coral.ui.foundation.LocalGlassBackdrop.current,
-            onDismiss = { showTopCard = false }
-        )
         }
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -97,12 +98,14 @@ fun TodaysTopCard(
                 ),
             contentAlignment = Alignment.TopEnd
         ) {
-            // ★ Card positioned at TOP-END (right side, near the greeting).
-            // Matches old Coral: card sits at the right side of the "Hey username" text.
+            // ★ Card positioned at TOP-END (right side, next to greeting).
+            // Uses statusBarsPadding + header height (56dp) + gap (16dp) = universal.
+            // Same position on every phone — adapts to status bar height.
             val cardShape = RoundedCornerShape(32.dp)
             Box(
                 modifier = Modifier
-                    .padding(top = 100.dp, end = 16.dp)
+                    .statusBarsPadding()
+                    .padding(top = 72.dp, end = 16.dp)  // 56dp header + 16dp gap below header
                     .width(240.dp)
                     .height(64.dp)
                     .clip(cardShape)

@@ -73,6 +73,12 @@ private fun CoralXRoot() {
     var customizationTitle by remember { mutableStateOf("") }
     var showCustomization by remember { mutableStateOf(false) }
 
+    // ★ TodaysTopCard state — hoisted OUTSIDE the scaffold (like old Coral).
+    // The card is a SIBLING of the scaffold content, so drawBackdrop samples
+    // the content behind it — no recursion, no crash.
+    var topCardSong by remember { mutableStateOf<com.rajatxo.coral.domain.model.Song?>(null) }
+    var showTopCard by remember { mutableStateOf(false) }
+
     // ★ Connect to CoralPlaybackService on launch
     LaunchedEffect(Unit) {
         PlaybackConnection.connect(context)
@@ -122,7 +128,12 @@ private fun CoralXRoot() {
             }
         ) {
             when (activeTab) {
-                CoralTab.QuickPicks -> QuickPicksScreen()
+                CoralTab.QuickPicks -> QuickPicksScreen(
+                    onTopCardClick = { song ->
+                        topCardSong = song
+                        showTopCard = true
+                    }
+                )
                 CoralTab.Songs -> SongsScreen()
                 CoralTab.Playlists -> PlaylistsScreen()
             }
@@ -145,6 +156,16 @@ private fun CoralXRoot() {
             visible = showCustomization,
             onDismiss = { showCustomization = false },
             title = customizationTitle
+        )
+
+        // ★ TodaysTopCard — rendered OUTSIDE the scaffold (like old Coral).
+        // SIBLING of the scaffold content → drawBackdrop samples content behind it.
+        // No recursion, no crash. Positioned at top-right via statusBarsPadding + header height.
+        com.rajatxo.coral.ui.components.TodaysTopCard(
+            visible = showTopCard,
+            song = topCardSong,
+            backdrop = com.rajatxo.coral.ui.foundation.LocalGlassBackdrop.current,
+            onDismiss = { showTopCard = false }
         )
     }
 }
