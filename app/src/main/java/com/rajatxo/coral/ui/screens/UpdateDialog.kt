@@ -41,8 +41,13 @@ import com.rajatxo.coral.update.ApkDownloader
  *       Ready     → Install / Close  (system installer already fired)
  *       Error     → message + Retry / Close
  *
- * Used by both MainActivity (auto check on launch) and SettingsScreen
- * (manual "Check for updates" button).
+ * ⚠️ CURRENTLY UNUSED — Coral is in pre-Play-Store development.
+ *    Users install APKs manually from GitHub Actions.
+ *
+ *    This file is preserved because the exact same UI will be reused
+ *    when we swap UpdateChecker from GitHub Releases to Play Core's
+ *    In-App Updates API next year. Only the data source changes —
+ *    the dialog, progress UI, and state machine stay identical.
  */
 @Composable
 fun UpdateDialog(
