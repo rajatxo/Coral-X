@@ -76,8 +76,8 @@ object UpdateChecker {
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
                 connection.disconnect()
 
-                val json = JSONObject(body)
-                val releases = json.optJSONArray("releases") ?: return@withContext UpdateResult.Error("No releases found")
+                // ★ GitHub API returns a plain JSON array [...], NOT {"releases": [...]}
+                val releases = org.json.JSONArray(body)
 
                 // Parse all releases
                 data class Release(
