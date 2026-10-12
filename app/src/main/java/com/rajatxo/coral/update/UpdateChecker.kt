@@ -1,12 +1,9 @@
 package com.rajatxo.coral.update
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -27,21 +24,26 @@ import java.net.URL
  *   - If NIGHTLY: pick the latest release (any patch version)
  *   - Compare with current versionCode
  *
- * Download always opens Telegram group (closed-source distribution).
+ * The APK is downloaded directly from the GitHub release asset — no Telegram needed.
  */
 object UpdateChecker {
 
     private const val TAG = "UpdateChecker"
     private const val RELEASES_URL =
-        "https://api.github.com/repos/rajatxo/Coral-X/releases"
+        "https://api.github.com/repos/rajatxo/Coral-X/releases?per_page=30"
 
-    const val TELEGRAM_DOWNLOAD_URL = "https://t.me/coralmusicsupport"
+    /** Fallback if no APK asset is found on the release */
+    const val TELEGRAM_FALLBACK_URL = "https://t.me/coralmusicsupport"
 
     sealed class UpdateResult {
         data class UpdateAvailable(
             val versionName: String,
             val releaseNotes: String,
-            val isStable: Boolean
+            val isStable: Boolean,
+            /** Direct APK download URL from GitHub release asset */
+            val downloadUrl: String,
+            /** APK file size in bytes (for progress display), or 0 if unknown */
+            val fileSize: Long
         ) : UpdateResult()
 
         object UpToDate : UpdateResult()
@@ -77,7 +79,7 @@ object UpdateChecker {
                 connection.disconnect()
 
                 // ★ GitHub API returns a plain JSON array [...], NOT {"releases": [...]}
-                val releases = org.json.JSONArray(body)
+                val releases = JSONArray(body)
 
                 // Parse all releases
                 data class Release(
@@ -85,7 +87,9 @@ object UpdateChecker {
                     val versionCode: Int,
                     val patch: Int,
                     val body: String,
-                    val isStable: Boolean
+                    val isStable: Boolean,
+                    val apkUrl: String?,
+                    val apkSize: Long
                 )
 
                 val allReleases = mutableListOf<Release>()
@@ -100,7 +104,24 @@ object UpdateChecker {
                     val versionCode = major * 10000 + minor * 100 + patch
                     val isStable = (patch == 0)
 
-                    allReleases.add(Release(tagName, versionCode, patch, releaseBody, isStable))
+                    // ★ Find the APK asset attached to this release
+                    var apkUrl: String? = null
+                    var apkSize = 0L
+                    val assets = release.optJSONArray("assets")
+                    if (assets != null) {
+                        for (j in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(j)
+                            val name = asset.optString("name", "")
+                            if (name.endsWith(".apk", ignoreCase = true)) {
+                                apkUrl = asset.optString("browser_download_url", "")
+                                if (apkUrl.isNullOrBlank()) apkUrl = null
+                                apkSize = asset.optLong("size", 0L)
+                                break
+                            }
+                        }
+                    }
+
+                    allReleases.add(Release(tagName, versionCode, patch, releaseBody, isStable, apkUrl, apkSize))
                 }
 
                 if (allReleases.isEmpty()) {
@@ -127,13 +148,18 @@ object UpdateChecker {
                 val latest = filteredReleases.maxByOrNull { it.versionCode }
                     ?: return@withContext UpdateResult.UpToDate
 
-                Log.d(TAG, "Channel: $channel, Local: $currentVersionCode, Remote: ${latest.versionCode} (${latest.tagName})")
+                Log.d(
+                    TAG,
+                    "Channel: $channel, Local: $currentVersionCode, Remote: ${latest.versionCode} (${latest.tagName}) APK: ${latest.apkUrl ?: "none"}"
+                )
 
                 if (latest.versionCode > currentVersionCode) {
                     UpdateResult.UpdateAvailable(
                         versionName = latest.tagName,
-                        releaseNotes = latest.body,
-                        isStable = latest.isStable
+                        releaseNotes = stripReleaseNotes(latest.body),
+                        isStable = latest.isStable,
+                        downloadUrl = latest.apkUrl ?: "",
+                        fileSize = latest.apkSize
                     )
                 } else {
                     UpdateResult.UpToDate
@@ -145,14 +171,31 @@ object UpdateChecker {
         }
     }
 
-    fun openTelegramDownload(context: Context) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(TELEGRAM_DOWNLOAD_URL)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to open Telegram", e)
-        }
+    /**
+     * Strip release notes to plain text — remove URLs, markdown, and Telegram links.
+     * Users see only what changed, never any links or channel promotion.
+     */
+    private fun stripReleaseNotes(raw: String): String {
+        var text = raw
+
+        // Remove Telegram links (t.me/...)
+        text = Regex("https?://t\\.me/\\S+").replace(text, "")
+        // Remove GitHub links (github.com/...)
+        text = Regex("https?://github\\.com/\\S+").replace(text, "")
+        // Remove any remaining URLs
+        text = Regex("https?://\\S+").replace(text, "")
+        // Remove markdown image syntax ![alt](url)
+        text = Regex("!\\[[^\\]]*\\]\\([^)]*\\)").replace(text, "")
+        // Remove markdown links [text](url) → keep text
+        text = Regex("\\[([^\\]]*)\\]\\([^)]*\\)").replace(text, "$1")
+        // Remove markdown headings
+        text = Regex("^#{1,6}\\s*", RegexOption.MULTILINE).replace(text, "")
+        // Remove bold/italic markers
+        text = Regex("[*_`~]").replace(text, "")
+        // Collapse multiple blank lines
+        text = Regex("\n{3,}").replace(text, "\n\n")
+        // Collapse multiple spaces
+        text = Regex("[ \\t]{2,}").replace(text, " ")
+        return text.trim().ifBlank { "New version available." }
     }
 }

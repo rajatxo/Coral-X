@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ★ FileProvider paths — grants the system package installer read access
+    to the APK file we cache in externalCacheDir during an update download.
+-->
+<paths>
+    <!-- Where ApkDownloader writes coral_update.apk -->
+    <external-cache-path name="updates" path="." />
+</paths>

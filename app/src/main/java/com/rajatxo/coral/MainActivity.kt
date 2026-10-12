@@ -15,10 +15,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +43,7 @@ import com.rajatxo.coral.ui.screens.QuickPicksScreen
 import com.rajatxo.coral.ui.screens.SettingsScreen
 import com.rajatxo.coral.ui.screens.SongsScreen
 import com.rajatxo.coral.ui.util.CoralTab
+import com.rajatxo.coral.update.ApkDownloader
 import com.rajatxo.coral.update.UpdateChecker
 
 class MainActivity : ComponentActivity() {
@@ -97,8 +102,11 @@ private fun CoralXRoot() {
                 versionName = updateInfo!!.versionName,
                 releaseNotes = updateInfo!!.releaseNotes,
                 isStable = updateInfo!!.isStable,
-                onDownload = { UpdateChecker.openTelegramDownload(context) },
-                onDismiss = { showUpdateDialog = false }
+                downloadUrl = updateInfo!!.downloadUrl,
+                onDismiss = {
+                    ApkDownloader.cancel()
+                    showUpdateDialog = false
+                }
             )
         }
     }
@@ -109,9 +117,12 @@ private fun UpdateDialog(
     versionName: String,
     releaseNotes: String,
     isStable: Boolean,
-    onDownload: () -> Unit,
+    downloadUrl: String,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val downloadState by ApkDownloader.state.collectAsState()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -174,41 +185,170 @@ private fun UpdateDialog(
                 fontSize = 14.sp
             )
             Spacer(modifier = Modifier.height(20.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(Color.White.copy(alpha = 0.1f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onDismiss
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = "Later", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+
+            // ★ Live download state — replaces the static buttons row
+            when (val state = downloadState) {
+                is ApkDownloader.State.Idle -> {
+                    ActionRow(
+                        leftLabel = "Later",
+                        rightLabel = "Download",
+                        onLeft = onDismiss,
+                        onRight = {
+                            if (downloadUrl.isNotBlank()) {
+                                ApkDownloader.start(context, downloadUrl)
+                            }
+                        }
+                    )
                 }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(Color(0xFFFF6B6B))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onDownload
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = "Download", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+                is ApkDownloader.State.Downloading -> {
+                    DownloadingRow(
+                        progress = state.progress,
+                        downloadedBytes = state.downloadedBytes,
+                        totalBytes = state.totalBytes
+                    )
+                }
+
+                is ApkDownloader.State.Ready -> {
+                    // Install prompt already fired — give the user a manual retry button in case
+                    // they dismissed the system dialog
+                    ActionRow(
+                        leftLabel = "Close",
+                        rightLabel = "Install",
+                        onLeft = onDismiss,
+                        onRight = {
+                            ApkDownloader.launchInstaller(context, state.file)
+                        }
+                    )
+                }
+
+                is ApkDownloader.State.Error -> {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = state.message,
+                            color = Color(0xFFFF6B6B),
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        ActionRow(
+                            leftLabel = "Close",
+                            rightLabel = "Retry",
+                            onLeft = onDismiss,
+                            onRight = {
+                                if (downloadUrl.isNotBlank()) {
+                                    ApkDownloader.start(context, downloadUrl)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ActionRow(
+    leftLabel: String,
+    rightLabel: String,
+    onLeft: () -> Unit,
+    onRight: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(44.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White.copy(alpha = 0.1f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onLeft
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = leftLabel, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(44.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFFFF6B6B))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onRight
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = rightLabel, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun DownloadingRow(
+    progress: Int,
+    downloadedBytes: Long,
+    totalBytes: Long
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        if (progress >= 0) {
+            LinearProgressIndicator(
+                progress = { progress / 100f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = Color(0xFFFF6B6B),
+                trackColor = Color.White.copy(alpha = 0.15f)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (totalBytes > 0) "${humanSize(downloadedBytes)} / ${humanSize(totalBytes)}" else "${humanSize(downloadedBytes)}",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.sp
+                )
+                Text(
+                    text = "$progress%",
+                    color = Color(0xFFFF6B6B),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        } else {
+            // Unknown total size — just show a spinner
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                color = Color(0xFFFF6B6B),
+                strokeWidth = 3.dp
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "${humanSize(downloadedBytes)} downloaded",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+private fun humanSize(bytes: Long): String {
+    if (bytes < 1024) return "${bytes}B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "%.1f MB".format(kb) // < 1 MB — show as MB anyway since most APKs >1MB
+    val mb = kb / 1024.0
+    return "%.1f MB".format(mb)
 }

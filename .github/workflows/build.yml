@@ -79,6 +79,17 @@ jobs:
     - name: Build release APK
       run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
 
+    - name: Rename APK for clean release asset name
+      run: |
+        VERSION_NAME="${{ steps.version.outputs.version_name }}"
+        # steps.version hasn't run yet — read it fresh here
+        VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*= *"//; s/".*//')
+        APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+        if [ -n "$APK_PATH" ]; then
+          mv "$APK_PATH" "app/build/outputs/apk/release/Coral-v${VERSION_NAME}.apk"
+          echo "Renamed to Coral-v${VERSION_NAME}.apk"
+        fi
+
     - name: Get version info
       id: version
       run: |
