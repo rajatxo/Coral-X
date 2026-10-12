@@ -10,7 +10,17 @@ import java.net.URL
 /**
  * ★ UpdateChecker — checks for new versions based on user's channel.
  *
- * Two channels:
+ * CURRENT STATE (pre-Play-Store launch):
+ *   - GitHub Releases no longer carry APK assets
+ *   - This checker will query GitHub but find no APK to download
+ *   - In-app updater is effectively paused until Play Store launch
+ *
+ * ROADMAP:
+ *   - Once Coral ships on Google Play, swap this to use Play Core's
+ *     In-App Updates API (AppUpdateManager). The UpdateDialog UI stays
+ *     exactly the same — only the data source changes.
+ *
+ * Two channels (kept for UI continuity):
  *   STABLE  — only shows updates where patch=0 (v0.5.0, v0.6.0, v0.7.0)
  *   NIGHTLY — shows ALL updates (v0.5.1, v0.5.2, v0.6.0, etc.)
  *
@@ -18,13 +28,8 @@ import java.net.URL
  *   Stable:  v0.5.0, v0.6.0, v0.7.0  (minor.X.0 — patch always 0)
  *   Nightly: v0.5.1, v0.5.2, v0.5.3  (minor.X.patch — patch > 0)
  *
- * So the logic is:
- *   - Fetch ALL releases from GitHub
- *   - If STABLE: filter to only releases where patch=0, pick the latest
- *   - If NIGHTLY: pick the latest release (any patch version)
- *   - Compare with current versionCode
- *
- * The APK is downloaded directly from the GitHub release asset — no Telegram needed.
+ * If a release has no APK asset attached, its downloadUrl will be empty
+ * and the UpdateDialog will gracefully fall back to "Up to date".
  */
 object UpdateChecker {
 
