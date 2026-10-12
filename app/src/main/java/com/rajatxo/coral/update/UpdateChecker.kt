@@ -92,17 +92,7 @@ object UpdateChecker {
                 for (i in 0 until releases.length()) {
                     val release = releases.getJSONObject(i)
                     val tagName = release.optString("tag_name", "")
-                    var releaseBody = release.optString("body", "New version available.")
-                    // ★ Strip ALL URLs and markdown links — user should only see plain text
-                    releaseBody = releaseBody
-                        .replace(Regex("""https?://\S+"""), "")  // remove raw URLs
-                        .replace(Regex("""\[[^\]]*\]\([^)]*\)"""), "") // remove [text](url) markdown links
-                        .replace(Regex("""#{1,6}\s"""), "")  // remove markdown headers
-                        .replace(Regex("""\*{1,2}"""), "")  // remove bold/italic markers
-                        .replace(Regex("""`{1,3}"""), "")  // remove code blocks
-                        .replace("\n\n\n", "\n\n")  // collapse excessive newlines
-                        .trim()
-                    if (releaseBody.isBlank()) releaseBody = "New version available."
+                    val releaseBody = release.optString("body", "New version available.")
                     val parts = tagName.removePrefix("v").removePrefix("V").split(".")
                     val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
                     val minor = parts.getOrNull(1)?.toIntOrNull() ?: 0
