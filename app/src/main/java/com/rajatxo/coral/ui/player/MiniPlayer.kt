@@ -109,7 +109,10 @@ fun MiniPlayer(
     Box(
         modifier = Modifier
             .padding(vertical = 4.dp)
-            .consistentNavBarPadding()
+            // ★ NO consistentNavBarPadding() here — the scaffold's Box
+            // already positions the mini player 10dp above the tab capsule.
+            // Adding consistentNavBarPadding here would double-pad it,
+            // pushing it way too high (48dp extra).
             .graphicsLayer {
                 translationX = offsetX.value
                 translationY = offsetY.value.coerceAtLeast(-maxSwipeUpPx)
