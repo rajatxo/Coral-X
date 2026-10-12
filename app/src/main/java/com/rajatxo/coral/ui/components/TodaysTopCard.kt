@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -48,17 +49,20 @@ import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.playback.PlaybackConnection
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
+import kotlinx.coroutines.delay
 
 /**
  * ★ TodaysTopCard — floating glass capsule shown when user taps a Today's Top cover.
  *
- * Ported from old Coral's TodaysTopCard (simplified — no Cynthia customization).
- * Same shape and size as the mini player (capsule, 32dp rounded corners, kyant blur).
+ * Ported from old Coral's TodaysTopCard. Positioned at the TOP of the screen,
+ * right-aligned (next to the "Hey username" greeting). No scrim — it's a
+ * floating glass capsule on top of the content, just like old Coral.
+ *
+ * Auto-dismisses after 10 seconds (matches old Coral's behavior).
  *
  * Layout: [Cover circle + pin badge] [Title + artist] [Play/Pause] [Menu]
  *
- * Tap outside to dismiss. Tap cover pin → toggle speed dial pin.
- * Tap play/pause → plays the song (or toggles if it's the current song).
+ * Glass morphism via kyant drawBackdrop (same as nav bar + mini player).
  */
 @Composable
 fun TodaysTopCard(
@@ -67,29 +71,39 @@ fun TodaysTopCard(
     backdrop: LayerBackdrop? = null,
     onDismiss: () -> Unit
 ) {
+    // Auto-dismiss after 10 seconds
+    LaunchedEffect(visible, song) {
+        if (visible && song != null) {
+            delay(10000)
+            onDismiss()
+        }
+    }
+
     AnimatedVisibility(
         visible = visible && song != null,
         enter = fadeIn() + scaleIn(initialScale = 0.8f),
         exit = fadeOut() + scaleOut(targetScale = 0.8f),
         modifier = Modifier.fillMaxSize()
     ) {
-        // Scrim — tap outside to dismiss
+        // ★ NO scrim — floating card on top of content (like old Coral).
+        // Tap outside to dismiss (transparent clickable layer).
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.5f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = onDismiss
                 ),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.TopEnd
         ) {
+            // ★ Card positioned at TOP-END (right side, near the greeting).
+            // Matches old Coral: card sits at the right side of the "Hey username" text.
             val cardShape = RoundedCornerShape(32.dp)
             Box(
                 modifier = Modifier
-                    .padding(horizontal = 36.dp)
-                    .width(280.dp)
+                    .padding(top = 100.dp, end = 16.dp)
+                    .width(240.dp)
                     .height(64.dp)
                     .clip(cardShape)
                     .then(
@@ -169,7 +183,6 @@ fun TodaysTopCard(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(top = 0.dp, end = 0.dp)
                                 .size(18.dp)
                                 .clip(CircleShape)
                                 .background(
@@ -244,8 +257,6 @@ fun TodaysTopCard(
                                     if (isCurrent) {
                                         PlaybackConnection.playPause()
                                     } else {
-                                        // Need the full song list — use a singleton or pass it.
-                                        // For now, play just this song (queue of 1).
                                         PlaybackConnection.playSong(theSong, listOf(theSong))
                                     }
                                 }

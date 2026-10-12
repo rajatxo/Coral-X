@@ -414,9 +414,11 @@ fun QuickPicksScreen() {
         }
 
         // ★ TodaysTopCard — floating glass capsule, shown when user taps a Today's Top cover
+        // Positioned at top-right (next to greeting), uses kyant backdrop from scaffold
         com.rajatxo.coral.ui.components.TodaysTopCard(
             visible = showTopCard,
             song = topCardSong,
+            backdrop = com.rajatxo.coral.ui.foundation.LocalGlassBackdrop.current,
             onDismiss = { showTopCard = false }
         )
         }
