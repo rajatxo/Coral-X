@@ -70,6 +70,8 @@ private fun CoralXRoot() {
     }
     var showSettings by remember { mutableStateOf(false) }
     var showFullPlayer by remember { mutableStateOf(false) }
+    var customizationTitle by remember { mutableStateOf("") }
+    var showCustomization by remember { mutableStateOf(false) }
 
     // ★ Connect to CoralPlaybackService on launch
     LaunchedEffect(Unit) {
@@ -111,7 +113,11 @@ private fun CoralXRoot() {
             miniPlayer = {
                 MiniPlayer(
                     onExpand = { showFullPlayer = true },
-                    onDismiss = { /* Mini player dismissed — stays hidden until next song */ }
+                    onDismiss = { /* Mini player dismissed — stays hidden until next song */ },
+                    onLongPress = {
+                        customizationTitle = "Mini Player"
+                        showCustomization = true
+                    }
                 )
             }
         ) {
@@ -133,5 +139,12 @@ private fun CoralXRoot() {
                 onDismiss = { showFullPlayer = false }
             )
         }
+
+        // ★ Customization panel — appears on long-press of mini player / nav / search
+        com.rajatxo.coral.ui.components.CustomizationPanel(
+            visible = showCustomization,
+            onDismiss = { showCustomization = false },
+            title = customizationTitle
+        )
     }
 }

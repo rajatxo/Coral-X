@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -78,9 +78,6 @@ fun SpeedDialSection(
     val pageCount = (totalSlots + itemsPerPage - 1) / itemsPerPage
     val pagerState = rememberPagerState(pageCount = { pageCount.coerceAtLeast(1) })
 
-    // Tile size — each tile is 100dp (same as before)
-    val tileHeight = 100.dp
-
     Column(modifier = modifier.fillMaxWidth()) {
         // Header
         Row(
@@ -119,6 +116,8 @@ fun SpeedDialSection(
 
         // ★ HorizontalPager — swipe between pages of songs
         // No surrounding container — tiles arranged openly (matches old Coral Astra mode).
+        // Use aspectRatio(1f) for each tile so they're always perfect squares,
+        // regardless of screen width (fixes the "thin last row" issue).
         HorizontalPager(
             state = pagerState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp),
@@ -126,11 +125,15 @@ fun SpeedDialSection(
             beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(tileHeight * rows)
         ) { page ->
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 for (row in 0 until rows) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
                         for (col in 0 until columns) {
                             val itemIndex = row * columns + col
                             val globalItemIndex = page * itemsPerPage + itemIndex
@@ -142,8 +145,8 @@ fun SpeedDialSection(
                                 DiceTile(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .padding(4.dp)
-                                        .height(tileHeight),
+                                        .aspectRatio(1f)
+                                        .padding(4.dp),
                                     onClick = onDiceClick
                                 )
                             } else {
@@ -160,15 +163,15 @@ fun SpeedDialSection(
                                         onClick = { onTileClick(song) },
                                         modifier = Modifier
                                             .weight(1f)
+                                            .aspectRatio(1f)
                                             .padding(4.dp)
-                                            .height(tileHeight)
                                     )
                                 } else {
                                     Spacer(
                                         modifier = Modifier
                                             .weight(1f)
+                                            .aspectRatio(1f)
                                             .padding(4.dp)
-                                            .height(tileHeight)
                                     )
                                 }
                             }

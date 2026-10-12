@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -77,7 +78,8 @@ import kotlin.math.abs
 @Composable
 fun MiniPlayer(
     onExpand: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onLongPress: () -> Unit = {}
 ) {
     val playback = PlaybackConnection
     val song by playback.currentSong.collectAsState()
@@ -217,10 +219,11 @@ fun MiniPlayer(
                     }
                 )
                 .border(1.dp, Color.White.copy(alpha = 0.2f), pillShape)
-                .clickable(
+                .combinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onExpand
+                    onClick = onExpand,
+                    onLongClick = onLongPress
                 )
         } else {
             Modifier
@@ -229,10 +232,11 @@ fun MiniPlayer(
                 .clip(pillShape)
                 .background(Color.Black.copy(alpha = 0.6f))
                 .border(1.dp, Color.White.copy(alpha = 0.2f), pillShape)
-                .clickable(
+                .combinedClickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onExpand
+                    onClick = onExpand,
+                    onLongClick = onLongPress
                 )
         }
         Box(modifier = bodyModifier) {
