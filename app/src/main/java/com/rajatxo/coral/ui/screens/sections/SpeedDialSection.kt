@@ -102,15 +102,10 @@ fun SpeedDialSection(
             }
         }
 
-        // Glass container with 3×3 grid
-        val containerShape = RoundedCornerShape(20.dp)
+        // 3×3 grid — tiles arranged directly, NO surrounding container.
+        // Matches old Coral's Astra mode: each tile is open (no glass box around them).
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(containerShape)
-                .background(Color(0xFF1A1A1A).copy(alpha = 0.4f))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), containerShape)
-                .padding(8.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
             for (row in 0 until 3) {
                 Row(

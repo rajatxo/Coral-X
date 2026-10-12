@@ -94,9 +94,10 @@ fun CoralXScaffold(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0.0f to Color(0xFF1A1A2E),  // subtle dark blue at top (behind blur)
-                            0.3f to Color(0xFF0A0A12),  // fade to near-black
-                            1.0f to Color(0xFF000000)   // pure black at bottom
+                            0.0f to Color(0xFF2A2A4E),  // brighter dark blue at top (behind blur)
+                            0.15f to Color(0xFF1A1A2E),  // mid blue
+                            0.35f to Color(0xFF0A0A12),  // fade to near-black
+                            1.0f to Color(0xFF000000)    // pure black at bottom
                         )
                     )
                 )

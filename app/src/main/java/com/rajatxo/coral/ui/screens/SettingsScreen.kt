@@ -1,7 +1,5 @@
 package com.rajatxo.coral.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -55,8 +52,6 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
 fun SettingsScreen(
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -112,16 +107,6 @@ fun SettingsScreen(
         SettingsSectionHeader("UPDATES")
         Spacer(modifier = Modifier.height(8.dp))
         UpdateChannelToggle()
-        Spacer(modifier = Modifier.height(8.dp))
-        GetUpdatesButton(
-            currentVersion = BuildConfig.VERSION_NAME,
-            onOpenActions = {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_ACTIONS_URL)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            }
-        )
         Spacer(modifier = Modifier.height(24.dp))
 
         // ─── Section: Quick Picks ───────────────────
@@ -142,9 +127,6 @@ fun SettingsScreen(
         }
     }
 }
-
-/** Private dev-only link to GitHub Actions page for manual APK downloads. */
-private const val GITHUB_ACTIONS_URL = "https://github.com/rajatxo/Coral-X/actions"
 
 @Composable
 private fun SettingsSectionHeader(title: String) {
@@ -211,51 +193,6 @@ private fun UpdateChannelToggle() {
                 accentColor = Color(0xFFFFD166),
                 modifier = Modifier.weight(1f),
                 onClick = { UpdateChannelManager.setChannel(UpdateChannelManager.UpdateChannel.NIGHTLY) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun GetUpdatesButton(
-    currentVersion: String,
-    onOpenActions: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1A1A1A).copy(alpha = 0.6f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onOpenActions
-            )
-            .padding(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Get Updates",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = CalSansFamily
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "You're on v$currentVersion · Tap to open GitHub Actions",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 12.sp,
-                    fontFamily = CalSansFamily
-                )
-            }
-            Icon(
-                imageVector = CoralXIcons.ChevronRight,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.4f),
-                modifier = Modifier.size(20.dp)
             )
         }
     }
