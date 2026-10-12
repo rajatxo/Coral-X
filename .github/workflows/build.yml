@@ -1,9 +1,7 @@
-name: Build Coral-X APK
+name: Build & Deploy Coral APK
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -12,13 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # ★ Use env vars for secrets — GitHub Actions interpolates ${{ secrets.X }}
-      #   at workflow-compose time, but env vars are safer (no shell escaping issues
-      #   with passwords containing spaces like "The Weeknd 199").
       CORAL_X_KEYSTORE_BASE64: ${{ secrets.CORAL_X_KEYSTORE_BASE64 }}
       CORAL_X_STORE_PASSWORD: ${{ secrets.CORAL_X_STORE_PASSWORD }}
       CORAL_X_KEY_ALIAS: ${{ secrets.CORAL_X_KEY_ALIAS }}
       CORAL_X_KEY_PASSWORD: ${{ secrets.CORAL_X_KEY_PASSWORD }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
     - name: Checkout code
@@ -42,46 +39,91 @@ jobs:
       run: |
         if [ -n "$CORAL_X_KEYSTORE_BASE64" ]; then
           echo "$CORAL_X_KEYSTORE_BASE64" | base64 -d > coral-x-release.jks
-          echo "✓ Keystore decoded ($(wc -c < coral-x-release.jks) bytes)"
-          # Create keystore.properties in repo root (build.gradle.kts reads from rootProject)
           cat > keystore.properties << 'PROPS_EOF'
         storeFile=coral-x-release.jks
         storePassword=PLACEHOLDER_STORE_PASS
         keyAlias=PLACEHOLDER_KEY_ALIAS
         keyPassword=PLACEHOLDER_KEY_PASS
         PROPS_EOF
-          # Replace placeholders with actual secret values (sed to handle spaces in passwords)
           sed -i "s|PLACEHOLDER_STORE_PASS|$CORAL_X_STORE_PASSWORD|g" keystore.properties
           sed -i "s|PLACEHOLDER_KEY_ALIAS|$CORAL_X_KEY_ALIAS|g" keystore.properties
           sed -i "s|PLACEHOLDER_KEY_PASS|$CORAL_X_KEY_PASSWORD|g" keystore.properties
-          echo "✓ keystore.properties created"
-          echo "--- keystore.properties (passwords masked) ---"
-          sed 's/=.*/=***/' keystore.properties
+          echo "Keystore decoded"
         else
-          echo "⚠ No keystore secret found — debug APK will be unsigned (debug-signed)"
+          echo "No keystore — debug-signed only"
         fi
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Build debug APK
-      run: ./gradlew :app:assembleDebug --no-daemon --max-workers=2
-
-    - name: Build release APK (only if keystore is configured)
-      if: env.CORAL_X_KEYSTORE_BASE64 != ''
+    - name: Build release APK
       run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
 
-    - name: Upload debug APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: coral-x-debug-apk
-        path: app/build/outputs/apk/debug/*.apk
-        retention-days: 30
+    - name: Get version info
+      id: version
+      run: |
+        VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | head -1 | sed 's/.*= *//; s/ *//' | tr -d '"')
+        VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | sed 's/.*= *//; s/ *//' | tr -d '"')
+        echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+        echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+        echo "tag=v$VERSION_NAME" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION_NAME (code: $VERSION_CODE)"
 
-    - name: Upload release APK
-      if: env.CORAL_X_KEYSTORE_BASE64 != ''
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: Coral ${{ steps.version.outputs.version_name }}
+        generate_release_notes: true
+        files: app/build/outputs/apk/release/*.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Send APK to Telegram group
+      run: |
+        APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+        if [ -z "$APK_PATH" ]; then
+          echo "No APK found"
+          exit 1
+        fi
+
+        VERSION_NAME="${{ steps.version.outputs.version_name }}"
+        FILENAME="Coral-v${VERSION_NAME}.apk"
+
+        # Rename the APK
+        cp "$APK_PATH" "$FILENAME"
+
+        echo "Sending $FILENAME to Telegram..."
+
+        # Send message first
+        MESSAGE="Coral v${VERSION_NAME}
+
+Download the APK below.
+Install it to update Coral."
+
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          -d "chat_id=${TELEGRAM_CHAT_ID}" \
+          -d "text=${MESSAGE}" \
+          -d "parse_mode=HTML"
+
+        # Send the APK file
+        curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+          -F "chat_id=${TELEGRAM_CHAT_ID}" \
+          -F "document=@${FILENAME}" \
+          -F "caption=Coral v${VERSION_NAME}"
+
+        echo "APK sent to Telegram!"
+
+    - name: Upload debug APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: coral-x-release-apk
+        name: coral-debug-apk
+        path: app/build/outputs/apk/debug/*.apk
+        retention-days: 7
+
+    - name: Upload release APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: coral-release-apk
         path: app/build/outputs/apk/release/*.apk
         retention-days: 30
