@@ -11,20 +11,20 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * ★ UpdateChecker — checks GitHub Releases for new versions.
+ * ★ UpdateChecker — checks for new versions and redirects to Telegram.
  *
- * Since Coral X is distributed via Telegram (not Play Store), we need our own
- * update mechanism. This checks the GitHub Releases API for the latest release
- * and compares the version code.
+ * Strategy:
+ *   1. Checks GitHub Releases API for the latest release tag
+ *   2. Compares version codes
+ *   3. If update available → shows dialog with "Download" button
+ *   4. "Download" button opens the Telegram support group
+ *      (https://t.me/coralmusicsupport) where APKs are posted
  *
- * Flow:
- *   1. App starts → UpdateChecker.checkForUpdate(context)
- *   2. Fetches https://api.github.com/repos/rajatxo/Coral-X/releases/latest
- *   3. Parses the release tag_name (e.g., "v0.1.0") and body (release notes)
- *   4. Compares with the current versionCode
- *   5. Returns UpdateResult (UpdateAvailable / UpToDate / Error)
+ * This keeps the project closed-source — users never see the repo,
+ * they just download APKs from Telegram.
  *
- * The UI layer (when built) will show an update dialog based on UpdateResult.
+ * The Telegram link is hardcoded so even if GitHub is down, the
+ * Telegram group always works as the distribution channel.
  */
 object UpdateChecker {
 
@@ -33,30 +33,27 @@ object UpdateChecker {
         "https://api.github.com/repos/rajatxo/Coral-X/releases/latest"
 
     /**
+     * ★ Telegram support group — where APKs are posted for download.
+     * Users tap "Download" → this opens in browser/Telegram app.
+     */
+    const val TELEGRAM_DOWNLOAD_URL = "https://t.me/coralmusicsupport"
+
+    /**
      * Result of an update check.
      */
     sealed class UpdateResult {
-        /** A new version is available. */
         data class UpdateAvailable(
             val versionName: String,
-            val downloadUrl: String,
-            val releaseNotes: String,
-            val htmlUrl: String
+            val releaseNotes: String
         ) : UpdateResult()
 
-        /** App is up to date. */
         object UpToDate : UpdateResult()
-
-        /** Check failed (network error, parse error, etc.). */
         data class Error(val message: String) : UpdateResult()
     }
 
     /**
      * Check GitHub for the latest release.
-     * Must be called on a background thread (IO dispatcher).
-     *
-     * @param currentVersionCode The app's current versionCode (from BuildConfig)
-     * @return UpdateResult
+     * Must be called on a background thread.
      */
     suspend fun checkForUpdate(currentVersionCode: Int): UpdateResult {
         return withContext(Dispatchers.IO) {
@@ -72,31 +69,16 @@ object UpdateChecker {
 
                 val responseCode = connection.responseCode
                 if (responseCode != 200) {
-                    return@withContext UpdateResult.Error(
-                        "GitHub API returned $responseCode"
-                    )
+                    return@withContext UpdateResult.Error("GitHub API returned $responseCode")
                 }
 
                 val body = connection.inputStream.bufferedReader().use { it.readText() }
                 connection.disconnect()
 
                 val json = JSONObject(body)
-                val tagName = json.optString("tag_name", "")  // e.g., "v0.1.0"
-                val htmlUrl = json.optString("html_url", "")
-                val releaseBody = json.optString("body", "No release notes.")
+                val tagName = json.optString("tag_name", "")
+                val releaseBody = json.optString("body", "New version available.")
 
-                // Extract version code from tag name (v0.1.0 → parse from versionName)
-                // We use the release's assets to find the APK download URL
-                val assets = json.optJSONArray("assets")
-                var downloadUrl = htmlUrl  // fallback to release page
-                if (assets != null && assets.length() > 0) {
-                    val firstAsset = assets.getJSONObject(0)
-                    downloadUrl = firstAsset.optString("browser_download_url", htmlUrl)
-                }
-
-                // Parse version code from tag name
-                // Tag format: "v0.1.0" → versionName "0.1.0"
-                // We compare version codes, so we need to extract a numeric code
                 val remoteVersionCode = parseVersionCodeFromTag(tagName)
 
                 Log.d(TAG, "Local: $currentVersionCode, Remote: $remoteVersionCode ($tagName)")
@@ -104,9 +86,7 @@ object UpdateChecker {
                 if (remoteVersionCode > currentVersionCode) {
                     UpdateResult.UpdateAvailable(
                         versionName = tagName,
-                        downloadUrl = downloadUrl,
-                        releaseNotes = releaseBody,
-                        htmlUrl = htmlUrl
+                        releaseNotes = releaseBody
                     )
                 } else {
                     UpdateResult.UpToDate
@@ -118,14 +98,6 @@ object UpdateChecker {
         }
     }
 
-    /**
-     * Parse a version code from a GitHub release tag name.
-     * Tag format: "v0.1.0" → versionCode 1
-     * Tag format: "v1.2.3" → versionCode 10203
-     *
-     * Formula: major * 10000 + minor * 100 + patch
-     * This gives unique codes up to version 99.99.99
-     */
     private fun parseVersionCodeFromTag(tag: String): Int {
         val cleanTag = tag.removePrefix("v").removePrefix("V")
         val parts = cleanTag.split(".")
@@ -136,17 +108,17 @@ object UpdateChecker {
     }
 
     /**
-     * Open the download URL in the system browser.
-     * (Downloads the APK or opens the GitHub release page)
+     * Open the Telegram support group in browser/Telegram app.
+     * This is where users download the latest APK.
      */
-    fun openDownloadUrl(context: Context, url: String) {
+    fun openTelegramDownload(context: Context) {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(TELEGRAM_DOWNLOAD_URL)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to open download URL", e)
+            Log.e(TAG, "Failed to open Telegram", e)
         }
     }
 }
