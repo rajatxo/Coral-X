@@ -20,13 +20,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,10 +40,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rajatxo.coral.BuildConfig
 import com.rajatxo.coral.data.prefs.SectionToggleManager
 import com.rajatxo.coral.data.prefs.UpdateChannelManager
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
+import com.rajatxo.coral.update.UpdateChecker
+import kotlinx.coroutines.launch
 
 /**
  * ★ SettingsScreen — Coral X settings.
@@ -54,14 +60,22 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
 fun SettingsScreen(
     onBack: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 200.dp)
-    ) {
+    // ★ Manual update-check state
+    var isChecking by remember { mutableStateOf(false) }
+    var checkStatus by remember { mutableStateOf<String?>(null) }
+    var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateResult.UpdateAvailable?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 200.dp)
+        ) {
         // ─── Header ───────────────────────────────────
         Row(
             modifier = Modifier
@@ -108,6 +122,32 @@ fun SettingsScreen(
         SettingsSectionHeader("UPDATES")
         Spacer(modifier = Modifier.height(8.dp))
         UpdateChannelToggle()
+        Spacer(modifier = Modifier.height(8.dp))
+        CheckForUpdatesButton(
+            isChecking = isChecking,
+            statusMessage = checkStatus,
+            onCheck = {
+                scope.launch {
+                    isChecking = true
+                    checkStatus = null
+                    val channel = UpdateChannelManager.channel.value
+                    val result = UpdateChecker.checkForUpdate(BuildConfig.VERSION_CODE, channel)
+                    isChecking = false
+                    when (result) {
+                        is UpdateChecker.UpdateResult.UpdateAvailable -> {
+                            updateInfo = result
+                            showUpdateDialog = true
+                        }
+                        is UpdateChecker.UpdateResult.UpToDate -> {
+                            checkStatus = "Coral is up to date"
+                        }
+                        is UpdateChecker.UpdateResult.Error -> {
+                            checkStatus = "Check failed: ${result.message}"
+                        }
+                    }
+                }
+            }
+        )
         Spacer(modifier = Modifier.height(24.dp))
 
         // ─── Section: Quick Picks ───────────────────
@@ -123,8 +163,23 @@ fun SettingsScreen(
         // ─── Section: About ──────────────────────────
         SettingsSectionHeader("ABOUT")
         Spacer(modifier = Modifier.height(8.dp))
-        AboutRow("Version", com.rajatxo.coral.BuildConfig.VERSION_NAME)
+        AboutRow("Version", BuildConfig.VERSION_NAME)
         AboutRow("Channel", if (UpdateChannelManager.channel.value == UpdateChannelManager.UpdateChannel.STABLE) "Stable" else "Nightly")
+        }
+
+        // ★ Overlay the UpdateDialog on top of settings if a manual check found one
+        if (showUpdateDialog && updateInfo != null) {
+            UpdateDialog(
+                versionName = updateInfo!!.versionName,
+                releaseNotes = updateInfo!!.releaseNotes,
+                isStable = updateInfo!!.isStable,
+                downloadUrl = updateInfo!!.downloadUrl,
+                onDismiss = {
+                    com.rajatxo.coral.update.ApkDownloader.cancel()
+                    showUpdateDialog = false
+                }
+            )
+        }
     }
 }
 
@@ -193,6 +248,62 @@ private fun UpdateChannelToggle() {
                 accentColor = Color(0xFFFFD166),
                 modifier = Modifier.weight(1f),
                 onClick = { UpdateChannelManager.setChannel(UpdateChannelManager.UpdateChannel.NIGHTLY) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CheckForUpdatesButton(
+    isChecking: Boolean,
+    statusMessage: String?,
+    onCheck: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF1A1A1A).copy(alpha = 0.6f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = !isChecking,
+                onClick = onCheck
+            )
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Check for Updates",
+                color = if (isChecking) Color.White.copy(alpha = 0.4f) else Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = CalSansFamily,
+                modifier = Modifier.weight(1f)
+            )
+            if (isChecking) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color(0xFFFF6B6B),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = CoralXIcons.ChevronRight,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.4f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        if (statusMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = statusMessage,
+                color = if (statusMessage.startsWith("Check failed")) Color(0xFFFF6B6B) else Color(0xFF51CF66),
+                fontSize = 13.sp,
+                fontFamily = CalSansFamily
             )
         }
     }
