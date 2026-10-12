@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,10 +75,10 @@ fun MiniPlayer(
     onDismiss: () -> Unit
 ) {
     val playback = PlaybackConnection
-    val song by playback.currentSong.collectAsStateLifecycleAware()
-    val isPlaying by playback.isPlaying.collectAsStateLifecycleAware()
-    val positionMs by playback.positionMs.collectAsStateLifecycleAware()
-    val durationMs by playback.durationMs.collectAsStateLifecycleAware()
+    val song by playback.currentSong.collectAsState()
+    val isPlaying by playback.isPlaying.collectAsState()
+    val positionMs by playback.positionMs.collectAsState()
+    val durationMs by playback.durationMs.collectAsState()
 
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -331,11 +332,3 @@ fun MiniPlayer(
         }
     }
 }
-
-/**
- * Helper — collectAsState with lifecycle awareness.
- * Avoids dependency on lifecycle-runtime-compose for this single use.
- */
-@Composable
-private fun <T> kotlinx.coroutines.flow.StateFlow<T>.collectAsStateLifecycleAware() =
-    androidx.compose.runtime.collectAsState(initial = value)
