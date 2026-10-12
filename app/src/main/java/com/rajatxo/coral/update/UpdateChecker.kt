@@ -32,9 +32,6 @@ object UpdateChecker {
     private const val RELEASES_URL =
         "https://api.github.com/repos/rajatxo/Coral-X/releases?per_page=30"
 
-    /** Fallback if no APK asset is found on the release */
-    const val TELEGRAM_FALLBACK_URL = "https://t.me/coralmusicsupport"
-
     sealed class UpdateResult {
         data class UpdateAvailable(
             val versionName: String,
