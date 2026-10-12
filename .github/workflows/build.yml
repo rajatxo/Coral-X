@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
 
     env:
       CORAL_X_KEYSTORE_BASE64: ${{ secrets.CORAL_X_KEYSTORE_BASE64 }}
