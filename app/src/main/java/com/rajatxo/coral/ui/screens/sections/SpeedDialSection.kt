@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -27,7 +28,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -269,6 +272,10 @@ private fun SpeedDialTile(
         label = "tileScale"
     )
 
+    // ★ Pin state — long-press shows the pin capsule
+    var showPinCapsule by remember { mutableStateOf(false) }
+    val isPinned = com.rajatxo.coral.data.prefs.SpeedDialPinStore.isPinned(song.id)
+
     val tileShape = RoundedCornerShape(8.dp)
     val fallbackColor = songPlaceholderColor(song.id)
 
@@ -277,10 +284,11 @@ private fun SpeedDialTile(
             .scale(scale)
             .shadow(elevation = 4.dp, shape = tileShape, clip = false)
             .clip(tileShape)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = onClick,
+                onLongClick = { showPinCapsule = true }
             )
     ) {
         // ═══ Spiral 2.0-style album art blur-blend ═══
@@ -362,6 +370,86 @@ private fun SpeedDialTile(
                 .align(Alignment.BottomStart)
                 .padding(start = 8.dp, end = 4.dp, bottom = 4.dp)
         )
+
+        // Pinned indicator (top-left, small pin icon)
+        if (isPinned) {
+            Icon(
+                imageVector = CoralXIcons.Pin,
+                contentDescription = "Pinned",
+                tint = Color.White,
+                modifier = Modifier
+                    .padding(6.dp)
+                    .size(12.dp)
+                    .align(Alignment.TopStart)
+            )
+        }
+
+        // ★ Long-press pin capsule overlay
+        SpeedDialPinCapsule(
+            visible = showPinCapsule,
+            isPinned = isPinned,
+            onPin = {
+                if (isPinned) {
+                    com.rajatxo.coral.data.prefs.SpeedDialPinStore.unpin(song.id)
+                } else {
+                    com.rajatxo.coral.data.prefs.SpeedDialPinStore.pin(song.id)
+                }
+                showPinCapsule = false
+            },
+            onTimeout = { showPinCapsule = false }
+        )
+    }
+}
+
+@Composable
+private fun SpeedDialPinCapsule(
+    visible: Boolean,
+    isPinned: Boolean,
+    onPin: () -> Unit,
+    onTimeout: () -> Unit
+) {
+    // Auto-hide after 5 seconds
+    if (visible) {
+        androidx.compose.runtime.LaunchedEffect(visible) {
+            kotlinx.coroutines.delay(5000)
+            onTimeout()
+        }
+    }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.fadeIn(animationSpec = tween(200)),
+        exit = androidx.compose.animation.fadeOut(animationSpec = tween(300)),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Dim the card behind the capsule + center the capsule
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.4f)),
+            contentAlignment = Alignment.Center
+        ) {
+            // Thin capsule with pin icon
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onPin
+                    )
+                    .padding(10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CoralXIcons.Pin,
+                    contentDescription = if (isPinned) "Unpin" else "Pin",
+                    tint = if (isPinned) Color(0xFFFF6B6B) else Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
     }
 }
 

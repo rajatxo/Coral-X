@@ -180,12 +180,16 @@ fun QuickPicksScreen() {
         }
     }
 
-    // Extract palette from the first song's album art (for the background gradient)
-    LaunchedEffect(songs) {
-        val firstSongWithArt = songs.firstOrNull { it.albumArtUri != null }
-        val artUri = firstSongWithArt?.albumArtUri
+    // ★ Extract palette from the CURRENTLY PLAYING song's album art.
+    // When a song plays, the background gradient changes to match its colors.
+    // If no song is playing, fall back to the first song in the library.
+    val currentSong by com.rajatxo.coral.playback.PlaybackConnection.currentSong.collectAsState()
+    LaunchedEffect(currentSong, songs) {
+        // Prefer the current playing song; fall back to first song with art
+        val songForPalette = currentSong ?: songs.firstOrNull { it.albumArtUri != null }
+        val artUri = songForPalette?.albumArtUri
         if (artUri != null) {
-            // Check cache first
+            // Check cache first (instant — no extraction needed)
             com.rajatxo.coral.util.PaletteCache.get(artUri)?.let { palette = it }
             // Extract in background
             val extracted = withContext(Dispatchers.IO) {
@@ -286,7 +290,13 @@ fun QuickPicksScreen() {
                 }
             },
             state = ptrState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                com.rajatxo.coral.ui.components.BugLineRefreshIndicator(
+                    progress = ptrState.distanceFraction,
+                    isRefreshing = isRefreshing
+                )
+            }
         ) {
         LazyColumn(
             contentPadding = PaddingValues(
