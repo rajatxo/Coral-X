@@ -22,7 +22,7 @@ android {
         applicationId = "com.rajatxo.coralx"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
+        versionCode = 500
         versionName = "0.5.0"
     }
 
