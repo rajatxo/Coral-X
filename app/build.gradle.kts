@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 // ─── Signing keystore — read from keystore.properties (gitignored) ───
@@ -97,6 +98,23 @@ dependencies {
     // ★ Kyant backdrop — real AGSL glass blur (same as old Coral)
     implementation("io.github.kyant0:backdrop:1.0.0")
 
-    // ★ Coil3 — image loading (for album art when music scanning is added)
+    // ★ Coil3 — image loading (for album art)
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+
+    // ★ Media3 — ExoPlayer + MediaSession for music playback
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-session:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-decoder:1.5.1")
+
+    // ★ ALAC decoder — pure-Java fallback for 24-bit ALAC files
+    //    (hardware decoder on some devices silently produces silence
+    //    for 24-bit ALAC; this bypasses it)
+    implementation(project(":misc:alacdecoder"))
+
+    // ★ Serialization — for SongCache JSON persistence + Playlist/Favorites JSON
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+
+    // ★ Lifecycle — for PermissionScreen's DisposableEffect lifecycle observer
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 }

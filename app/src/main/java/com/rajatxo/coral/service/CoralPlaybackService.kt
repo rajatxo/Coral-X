@@ -1,0 +1,164 @@
+package com.rajatxo.coral.service
+
+import android.app.PendingIntent
+import android.content.Intent
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
+import com.rajatxo.coral.MainActivity
+import com.rajatxo.coral.audio.SimpleCrossfadeController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+class CoralPlaybackService : MediaSessionService() {
+
+    private var mediaSession: MediaSession? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    private var playerA: ExoPlayer? = null
+    private var playerB: ExoPlayer? = null
+    private var crossfadeController: SimpleCrossfadeController? = null
+
+    // Track which player is active vs standby
+    private var activePlayer: ExoPlayer? = null
+    private var standbyPlayer: ExoPlayer? = null
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // NOTE: The StudioClarityProcessor (8-band DSP) was previously
+        // wired into both players' audio sinks via a custom renderers
+        // factory. It was the root cause of:
+        //   1. Crossfade glitches — the DSP's internal filter + limiter
+        //      state didn't reset cleanly on player swap, causing
+        //      audible discontinuities (clicks/pops) during handoff.
+        //   2. Auto-next failing — the processor's flush() returned an
+        //      empty ByteBuffer which briefly stalled the audio pipeline
+        //      at end-of-track, preventing the next track from starting.
+        // Both players now use the DEFAULT renderers factory (no custom
+        // audio processors). The SoundLab tab has also been removed.
+        playerA = buildPlayer(ownsSession = true)
+        playerB = buildPlayer(ownsSession = false)
+
+        activePlayer = playerA
+        standbyPlayer = playerB
+
+        val intent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        mediaSession = MediaSession.Builder(this, playerA!!)
+            .setSessionActivity(pendingIntent)
+            .build()
+
+        crossfadeController = SimpleCrossfadeController(
+            scope = serviceScope,
+            active = { activePlayer },
+            standby = { standbyPlayer },
+            onHandoff = { outgoing, incoming ->
+                // Swap the session to the incoming player
+                mediaSession?.player = incoming
+
+                // Swap roles — outgoing becomes the new standby
+                activePlayer = incoming
+                standbyPlayer = outgoing
+
+                // The outgoing player was already stopped + cleared by the controller.
+                // Just make sure its volume is reset for the next use.
+                outgoing.volume = 1f
+            }
+        )
+        crossfadeController?.start()
+    }
+
+    private fun buildPlayer(ownsSession: Boolean): ExoPlayer {
+        // The ALAC 24-bit file plays (timeline runs) but produces no sound.
+        // The hardware decoder claims to support ALAC but can't handle 24-bit
+        // depth — it silently produces silence.
+        //
+        // Fix: Enable float audio output on the RenderersFactory.
+        // This tells the audio sink to use float PCM instead of 16-bit integer,
+        // which properly handles 24-bit ALAC output from the decoder.
+        // ROOT CAUSE: ExoPlayer's built-in hardware ALAC decoder produces
+        // silence on 24-bit ALAC files. The AudioSink fix (float output)
+        // alone wasn't enough — the decoder itself is broken.
+        //
+        // FIX: Override buildAudioRenderers to add the pure-Java AlacRenderer
+        // (org.nift4.alacdecoder) BEFORE the default hardware decoders.
+        // This bypasses the broken hardware decoder entirely.
+        // Same approach as Gramophone (open-source, GPL).
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioRenderers(
+                context: android.content.Context,
+                extensionRendererMode: Int,
+                mediaCodecSelector: androidx.media3.exoplayer.mediacodec.MediaCodecSelector,
+                enableDecoderFallback: Boolean,
+                audioSink: androidx.media3.exoplayer.audio.AudioSink,
+                eventHandler: android.os.Handler,
+                eventListener: androidx.media3.exoplayer.audio.AudioRendererEventListener,
+                out: java.util.ArrayList<androidx.media3.exoplayer.Renderer>
+            ) {
+                // Add the pure-Java ALAC renderer FIRST — it takes priority
+                out.add(org.nift4.alacdecoder.AlacRenderer(eventHandler, eventListener, audioSink))
+                // Then add the default renderers (for MP3, FLAC, AAC, etc.)
+                super.buildAudioRenderers(
+                    context, extensionRendererMode, mediaCodecSelector,
+                    enableDecoderFallback, audioSink, eventHandler, eventListener, out
+                )
+            }
+
+            override fun buildAudioSink(
+                context: android.content.Context,
+                pcmEncodingRestrictionLifted: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink {
+                return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(true)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .build()
+            }
+        }
+        renderersFactory
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+
+        val player = ExoPlayer.Builder(this, renderersFactory)
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus = */ ownsSession
+            )
+            .setHandleAudioBecomingNoisy(ownsSession)
+            .build()
+        player.repeatMode = Player.REPEAT_MODE_ALL
+        player.volume = 1f
+        return player
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        return mediaSession
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val player = mediaSession?.player
+        if (player?.playWhenReady == false || player?.mediaItemCount == 0) {
+            stopSelf()
+        }
+    }
+
+    override fun onDestroy() {
+        crossfadeController?.stop()
+        playerA?.release()
+        playerB?.release()
+        mediaSession?.release()
+        super.onDestroy()
+    }
+}

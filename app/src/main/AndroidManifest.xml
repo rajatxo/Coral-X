@@ -1,14 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- ★ Allows the app to install APKs downloaded from GitHub Releases -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- ─── Music scanning ─────────────────────────────────────────── -->
+    <!-- Android 13+ — granular media permission -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Android 12 and below — legacy storage permission -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Optional: for embedding cover art into file metadata -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <!-- ─── Notifications ──────────────────────────────────────────── -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- MediaSession foreground service (required for background playback) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!--
-        ★ Coral X — clean slate.
-        No music permissions, no service, no playback yet.
-        Those will be added when we build the media layer.
+        ★ Coral X — backend online.
+        Music scanner + Media3 playback service + permissions wired in.
     -->
 
     <application
@@ -36,6 +55,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- ★ Media3 playback service — runs in background for music playback -->
+        <service
+            android:name=".service.CoralPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
 
         <!-- ★ FileProvider so the system package installer can read our downloaded APK -->
         <provider

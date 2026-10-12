@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Coral X"
 include(":app")
+include(":misc:alacdecoder")
