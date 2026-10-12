@@ -284,6 +284,7 @@ private fun SquareCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val cardShape = RoundedCornerShape(14.dp)
     Box(
         modifier = modifier
@@ -295,47 +296,79 @@ private fun SquareCard(
                 onClick = onClick
             )
     ) {
-        // Background: album art (if available) or color gradient fallback
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(color, color.copy(alpha = 0.6f))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (albumArtUri != null) {
+        // ═══ Spiral 2.0-style album art blur-blend ═══
+        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+        // BlurTransformation (cached in memory) for smooth scrolling.
+        if (albumArtUri != null) {
+            val blurredRequest = remember(albumArtUri) {
+                coil3.request.ImageRequest.Builder(context)
+                    .data(albumArtUri)
+                    .transformations(com.rajatxo.coral.util.BlurTransformation(36.dp))
+                    .build()
+            }
+            coil3.compose.AsyncImage(
+                model = blurredRequest,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        // Layer 2 (top): SHARP album art — top 75%, DstIn blend at bottom
+        if (albumArtUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.75f)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val blendHeightPx = 30.dp.toPx()
+                        val imageHeight = size.height
+                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = blendStartY,
+                                endY = imageHeight
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
                 coil3.compose.AsyncImage(
-                    model = coil3.request.ImageRequest.Builder(LocalContext.current)
+                    model = coil3.request.ImageRequest.Builder(context)
                         .data(albumArtUri)
                         .build(),
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-            } else {
-                Icon(
-                    imageVector = CoralXIcons.Music,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(48.dp)
-                )
             }
         }
 
-        // Text overlay at bottom
+        // Text on the blurred bottom part
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
-                    )
-                )
-                .padding(10.dp)
+                .padding(8.dp)
         ) {
             Text(
                 text = title,
@@ -371,6 +404,7 @@ private fun LandscapeCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val cardShape = RoundedCornerShape(14.dp)
     Box(
         modifier = modifier
@@ -382,47 +416,78 @@ private fun LandscapeCard(
                 onClick = onClick
             )
     ) {
-        // Background: album art (if available) or color gradient fallback
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(color, color.copy(alpha = 0.6f))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (albumArtUri != null) {
+        // ═══ Spiral 2.0-style album art blur-blend ═══
+        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+        if (albumArtUri != null) {
+            val blurredRequest = remember(albumArtUri) {
+                coil3.request.ImageRequest.Builder(context)
+                    .data(albumArtUri)
+                    .transformations(com.rajatxo.coral.util.BlurTransformation(36.dp))
+                    .build()
+            }
+            coil3.compose.AsyncImage(
+                model = blurredRequest,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+
+        // Layer 2 (top): SHARP album art — top 75%, DstIn blend at bottom
+        if (albumArtUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.75f)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val blendHeightPx = 30.dp.toPx()
+                        val imageHeight = size.height
+                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = blendStartY,
+                                endY = imageHeight
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
                 coil3.compose.AsyncImage(
-                    model = coil3.request.ImageRequest.Builder(LocalContext.current)
+                    model = coil3.request.ImageRequest.Builder(context)
                         .data(albumArtUri)
                         .build(),
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-            } else {
-                Icon(
-                    imageVector = CoralXIcons.Music,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.3f),
-                    modifier = Modifier.size(56.dp)
-                )
             }
         }
 
-        // Text overlay
+        // Text on the blurred bottom part
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
-                    )
-                )
-                .padding(12.dp)
+                .padding(10.dp)
         ) {
             Text(
                 text = title,
@@ -435,7 +500,7 @@ private fun LandscapeCard(
             )
             Text(
                 text = artist,
-                color = Color.White.copy(alpha = 0.6f),
+                color = Color.White.copy(alpha = 0.7f),
                 fontSize = 13.sp,
                 fontFamily = CalSansFamily,
                 maxLines = 1,

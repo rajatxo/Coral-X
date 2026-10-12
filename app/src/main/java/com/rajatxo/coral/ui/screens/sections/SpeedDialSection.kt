@@ -1,6 +1,5 @@
 package com.rajatxo.coral.ui.screens.sections
 
-import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,8 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -42,16 +46,16 @@ import coil3.request.ImageRequest
 import com.rajatxo.coral.domain.model.Song
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
+import com.rajatxo.coral.util.BlurTransformation
 
 /**
  * ★ SpeedDialSection — 3×3 grid of song tiles inside a glass container.
  *
  * Ported from old Coral's SpeedDialSection. Each tile shows real album art
- * (loaded via Coil3) with the song title overlaid at the bottom.
+ * with Spiral 2.0 blur-blend (blurred bottom + sharp top + DstIn blend)
+ * and the song title overlaid at the bottom (no artist — matches old Coral).
  *
  * Last tile (bottom-right) = shuffle/dice button.
- *
- * @param songs The songs to display (up to 8). If fewer, empty slots show "+".
  */
 @Composable
 fun SpeedDialSection(
@@ -151,15 +155,18 @@ fun SpeedDialSection(
     }
 }
 
-/**
- * Derive a stable, dark-ish color from a song ID for the tile background
- * (fallback when no album art is available).
- */
 private fun songPlaceholderColor(songId: Long): Color {
     val hue = (songId % 360).toFloat()
     return Color.hsv(hue = hue, saturation = 0.45f, value = 0.22f)
 }
 
+/**
+ * SpeedDialTile — Spiral 2.0 blur-blend album art with song title overlay.
+ * Matches old Coral's SpeedDialCard exactly:
+ *   - Layer 1: blurred album art (full tile)
+ *   - Layer 2: sharp album art (top 85%, DstIn blend at bottom)
+ *   - Title at bottom (on the blurred part)
+ */
 @Composable
 private fun SpeedDialTile(
     song: Song,
@@ -189,12 +196,17 @@ private fun SpeedDialTile(
                 onClick = onClick
             )
     ) {
-        // Background: album art (via Coil3) or color gradient fallback
+        // ═══ Spiral 2.0-style album art blur-blend ═══
+        // Layer 1 (bottom): BLURRED album art
         if (song.albumArtUri != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
+            val blurredRequest = remember(song.albumArtUri) {
+                ImageRequest.Builder(context)
                     .data(song.albumArtUri)
-                    .build(),
+                    .transformations(BlurTransformation(20.dp))
+                    .build()
+            }
+            AsyncImage(
+                model = blurredRequest,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -203,60 +215,67 @@ private fun SpeedDialTile(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(fallbackColor, fallbackColor.copy(alpha = 0.5f))
-                        )
-                    ),
+                    .background(fallbackColor),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = CoralXIcons.Music,
                     contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.4f),
-                    modifier = Modifier.size(28.dp)
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        // Gradient overlay at bottom for text readability
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                    )
+        // Layer 2 (top): SHARP album art — top 85%, DstIn blend at bottom
+        if (song.albumArtUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val blendHeightPx = 24.dp.toPx()
+                        val imageHeight = size.height
+                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = blendStartY,
+                                endY = imageHeight
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(song.albumArtUri)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
-        )
+            }
+        }
 
-        // Song title + artist at bottom
-        Column(
+        // Title at the bottom (on the blurred part) — song title only, no artist
+        Text(
+            text = song.title,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            fontFamily = CalSansFamily,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(start = 8.dp, end = 4.dp, bottom = 6.dp)
-        ) {
-            Text(
-                text = song.title,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = CalSansFamily,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = song.artist,
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 10.sp,
-                fontFamily = CalSansFamily,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+                .padding(start = 8.dp, end = 4.dp, bottom = 4.dp)
+        )
     }
 }
 

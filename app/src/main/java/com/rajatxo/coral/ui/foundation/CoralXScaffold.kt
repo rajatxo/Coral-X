@@ -2,6 +2,7 @@ package com.rajatxo.coral.ui.foundation
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -249,6 +250,7 @@ fun CoralXScaffold(
                             },
                             onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
                         )
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
