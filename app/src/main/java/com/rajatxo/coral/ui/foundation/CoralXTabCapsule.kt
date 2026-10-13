@@ -18,9 +18,11 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,10 +60,53 @@ fun CoralXTabCapsule(
     customShape: Shape? = null
 ) {
     val view = LocalView.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val activeIndex = tabs.indexOf(activeTab).coerceAtLeast(0)
     var slideDirection by remember { mutableIntStateOf(1) }
     var dragAccumulator by remember { mutableFloatStateOf(0f) }
     val dragThreshold = 60f
+
+    // ★ SoundPool for tick sound on tab switch
+    val soundPool = remember {
+        android.media.SoundPool.Builder()
+            .setMaxStreams(2)
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    }
+    var soundLoaded by remember { mutableStateOf(false) }
+    val tickSoundId = remember {
+        soundPool.setOnLoadCompleteListener { _, _, status ->
+            if (status == 0) soundLoaded = true
+        }
+        soundPool.load(context, com.rajatxo.coral.R.raw.wheel_tick, 1)
+    }
+
+    val hapticsOn by com.rajatxo.coral.data.prefs.SoundHapticsManager.hapticsEnabled.collectAsState()
+    val soundsOn by com.rajatxo.coral.data.prefs.SoundHapticsManager.soundsEnabled.collectAsState()
+    val soundVolume by com.rajatxo.coral.data.prefs.SoundHapticsManager.soundVolume.collectAsState()
+
+    fun tickHaptic() {
+        if (hapticsOn) {
+            try {
+                view.performHapticFeedback(
+                    HapticFeedbackConstants.VIRTUAL_KEY,
+                    HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING or
+                    HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+                )
+            } catch (_: Exception) { }
+        }
+        if (soundsOn && soundLoaded) {
+            try {
+                val vol = soundVolume / 100f
+                soundPool.play(tickSoundId, vol, vol, 1, 0, 1f)
+            } catch (_: Exception) { }
+        }
+    }
 
     val capsuleShape: Shape = customShape ?: RoundedCornerShape(26.dp)
     val actualWidth = customWidth ?: 240.dp
@@ -85,13 +130,13 @@ fun CoralXTabCapsule(
                 if (dragAccumulator < -dragThreshold) {
                     slideDirection = 1
                     onTabSelected(tabs[(activeIndex + 1) % tabs.size])
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    tickHaptic()
                     dragAccumulator = 0f
                 } else if (dragAccumulator > dragThreshold) {
                     slideDirection = -1
                     val prev = if (activeIndex - 1 < 0) tabs.size - 1 else activeIndex - 1
                     onTabSelected(tabs[prev])
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    tickHaptic()
                     dragAccumulator = 0f
                 }
             }

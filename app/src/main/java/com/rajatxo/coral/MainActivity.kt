@@ -83,6 +83,7 @@ private fun CoralXRoot() {
     // the content behind it — no recursion, no crash.
     var topCardSong by remember { mutableStateOf<com.rajatxo.coral.domain.model.Song?>(null) }
     var showTopCard by remember { mutableStateOf(false) }
+    var showSpeedDialCard by remember { mutableStateOf(false) }
 
     // ★ Capture the scaffold's glass backdrop so TodaysTopCard (rendered outside
     //   the scaffold) can use it for drawBackdrop blur.
@@ -156,6 +157,9 @@ private fun CoralXRoot() {
                     onTopCardClick = { song ->
                         topCardSong = song
                         showTopCard = true
+                    },
+                    onSpeedDialHeaderClick = {
+                        showSpeedDialCard = true
                     }
                 )
                 CoralTab.Songs -> SongsScreen()
@@ -174,6 +178,14 @@ private fun CoralXRoot() {
                 onDismiss = { showFullPlayer = false }
             )
         }
+
+        // ★ SpeedDialCard — mode switch capsule (Random / Last Played)
+        // Opens when user taps "Speed dial" text. Same position as TodaysTopCard.
+        com.rajatxo.coral.ui.components.SpeedDialCard(
+            visible = showSpeedDialCard,
+            onDismiss = { showSpeedDialCard = false },
+            backdrop = glassBackdrop
+        )
 
         // ★ TodaysTopCard — rendered BEFORE the customization panel so the
         // panel appears ON TOP of the card (correct z-order).

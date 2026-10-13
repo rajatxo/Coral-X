@@ -152,7 +152,8 @@ private val placeholderSongs = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickPicksScreen(
-    onTopCardClick: (com.rajatxo.coral.domain.model.Song) -> Unit = {}
+    onTopCardClick: (com.rajatxo.coral.domain.model.Song) -> Unit = {},
+    onSpeedDialHeaderClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val greetingEnabled by SectionToggleManager.greetingEnabled.collectAsState()
@@ -339,6 +340,7 @@ fun QuickPicksScreen(
                     launchSeed = launchSeed,
                     pullProgress = ptrState.distanceFraction,
                     isRefreshing = isRefreshing,
+                    onHeaderClick = onSpeedDialHeaderClick,
                     onTileClick = { song ->
                         com.rajatxo.coral.playback.PlaybackConnection.playSong(song, songs)
                     },
