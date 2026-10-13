@@ -16,7 +16,7 @@ object Dimensions {
     val NavSearchGap: Dp = 12.dp
     val BottomStackGap: Dp = 8.dp
     val ContentPaddingHorizontal: Dp = 20.dp
-    val MinBottomSystemInset: Dp = 24.dp
+    val MinBottomSystemInset: Dp = 50.dp
     val MiniPlayerHeight: Dp = 64.dp
     /** Gap between the header row and the first piece of content. */
     val ContentTopGap: Dp = 28.dp
