@@ -79,6 +79,12 @@ private fun CoralXRoot() {
     var topCardSong by remember { mutableStateOf<com.rajatxo.coral.domain.model.Song?>(null) }
     var showTopCard by remember { mutableStateOf(false) }
 
+    // ★ Capture the scaffold's glass backdrop so TodaysTopCard (rendered outside
+    //   the scaffold) can use it for drawBackdrop blur.
+    var glassBackdrop by remember {
+        mutableStateOf<com.kyant.backdrop.backdrops.LayerBackdrop?>(null)
+    }
+
     // ★ Connect to CoralPlaybackService on launch
     LaunchedEffect(Unit) {
         PlaybackConnection.connect(context)
@@ -116,6 +122,7 @@ private fun CoralXRoot() {
             activeTab = activeTab,
             onTabSelected = { activeTab = it },
             onSettingsClick = { showSettings = true },
+            onBackdropReady = { backdrop -> glassBackdrop = backdrop },
             miniPlayer = {
                 MiniPlayer(
                     onExpand = { showFullPlayer = true },
@@ -152,19 +159,24 @@ private fun CoralXRoot() {
         }
 
         // ★ Customization panel — appears on long-press of mini player / nav / search
+        // or when user taps the more (•••) icon on TodaysTopCard
         com.rajatxo.coral.ui.components.CustomizationPanel(
             visible = showCustomization,
             onDismiss = { showCustomization = false },
-            title = customizationTitle
+            title = customizationTitle,
+            backdrop = glassBackdrop
         )
 
         // ★ TodaysTopCard — rendered OUTSIDE the scaffold (like old Coral).
-        // SIBLING of the scaffold content → drawBackdrop samples content behind it.
-        // No recursion, no crash. Positioned at top-right via statusBarsPadding + header height.
+        // Uses the scaffold's glass backdrop (captured via onBackdropReady).
         com.rajatxo.coral.ui.components.TodaysTopCard(
             visible = showTopCard,
             song = topCardSong,
-            backdrop = com.rajatxo.coral.ui.foundation.LocalGlassBackdrop.current,
+            backdrop = glassBackdrop,
+            onMenuClick = {
+                customizationTitle = "Today's Top"
+                showCustomization = true
+            },
             onDismiss = { showTopCard = false }
         )
     }

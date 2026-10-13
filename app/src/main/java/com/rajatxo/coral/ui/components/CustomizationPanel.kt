@@ -61,10 +61,9 @@ import com.kyant.backdrop.effects.vibrancy
 fun CustomizationPanel(
     visible: Boolean,
     onDismiss: () -> Unit,
-    title: String
+    title: String,
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop? = null
 ) {
-    val backdrop = LocalGlassBackdrop.current
-
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn() + scaleIn(initialScale = 0.8f),

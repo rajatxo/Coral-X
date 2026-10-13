@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -29,7 +30,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,22 +58,25 @@ import kotlinx.coroutines.delay
 /**
  * ★ TodaysTopCard — floating glass capsule shown when user taps a Today's Top cover.
  *
- * Ported from old Coral's TodaysTopCard. Positioned at the TOP of the screen,
- * right-aligned (next to the "Hey username" greeting). No scrim — it's a
- * floating glass capsule on top of the content, just like old Coral.
+ * Ported from old Coral's TodaysTopCard:
+ *   - Size: 188×61dp (old Coral defaults)
+ *   - Corner radius: 50dp (pill shape)
+ *   - Glass morphism via kyant drawBackdrop (same as nav bar + mini player)
+ *   - Layout: [Cover + pin] [Title + artist] [Play/Pause] [More (•••)]
+ *   - Tap more (•••) → opens a glass customization card
+ *   - Auto-dismiss after 10 seconds
+ *   - Positioned at top-right (statusBarsPadding + 72dp below status bar)
  *
- * Auto-dismisses after 10 seconds (matches old Coral's behavior).
- *
- * Layout: [Cover circle + pin badge] [Title + artist] [Play/Pause] [Menu]
- *
- * Glass morphism via kyant drawBackdrop (same as nav bar + mini player).
+ * @param backdrop The kyant LayerBackdrop from the scaffold (for glass blur)
+ * @param onMenuClick Called when user taps the more (•••) icon
  */
 @Composable
 fun TodaysTopCard(
     visible: Boolean,
     song: Song?,
     backdrop: LayerBackdrop? = null,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onMenuClick: () -> Unit = {}
 ) {
     // Auto-dismiss after 10 seconds
     LaunchedEffect(visible, song) {
@@ -86,7 +92,7 @@ fun TodaysTopCard(
         exit = fadeOut() + scaleOut(targetScale = 0.8f),
         modifier = Modifier.fillMaxSize()
     ) {
-        // ★ NO scrim — floating card on top of content (like old Coral).
+        // NO scrim — floating card on top of content (like old Coral).
         // Tap outside to dismiss (transparent clickable layer).
         Box(
             modifier = Modifier
@@ -98,16 +104,14 @@ fun TodaysTopCard(
                 ),
             contentAlignment = Alignment.TopEnd
         ) {
-            // ★ Card positioned at TOP-END (right side, next to greeting).
-            // Uses statusBarsPadding + header height (56dp) + gap (16dp) = universal.
-            // Same position on every phone — adapts to status bar height.
-            val cardShape = RoundedCornerShape(32.dp)
+            // ★ Card size: 188×61dp with 50dp corner radius (old Coral defaults)
+            val cardShape = RoundedCornerShape(50.dp)
             Box(
                 modifier = Modifier
                     .statusBarsPadding()
-                    .padding(top = 72.dp, end = 16.dp)  // 56dp header + 16dp gap below header
-                    .width(240.dp)
-                    .height(64.dp)
+                    .padding(top = 72.dp, end = 16.dp)
+                    .width(188.dp)
+                    .height(61.dp)
                     .clip(cardShape)
                     .then(
                         if (backdrop != null) {
@@ -146,10 +150,13 @@ fun TodaysTopCard(
                     val pinnedIds by SpeedDialPinStore.pinnedIds.collectAsState()
                     val isSongPinned = song != null && song.id in pinnedIds
 
+                    // Cover size scales with card height (old Coral: heightDp - 18f)
+                    val coverSize = 43.dp  // 61dp - 18dp
+
                     Box(
                         modifier = Modifier
                             .padding(start = 8.dp)
-                            .size(46.dp)
+                            .size(coverSize)
                     ) {
                         Box(
                             modifier = Modifier
@@ -219,12 +226,12 @@ fun TodaysTopCard(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 10.dp)
+                            .padding(horizontal = 8.dp)
                     ) {
                         Text(
                             text = song?.title ?: "",
                             color = Color.White,
-                            fontSize = 15.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             fontFamily = CalSansFamily,
                             maxLines = 1,
@@ -233,7 +240,7 @@ fun TodaysTopCard(
                         Text(
                             text = song?.artist ?: "",
                             color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontFamily = CalSansFamily,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -251,7 +258,7 @@ fun TodaysTopCard(
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.White,
                         modifier = Modifier
-                            .size(22.dp)
+                            .size(20.dp)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(bounded = false)
@@ -266,18 +273,18 @@ fun TodaysTopCard(
                             }
                     )
 
-                    // ─── Close icon ───
+                    // ─── More / three-dot menu (RIGHT) ───
                     Icon(
-                        imageVector = CoralXIcons.Close,
-                        contentDescription = "Close",
+                        imageVector = CoralXIcons.MoreVertical,
+                        contentDescription = "More",
                         tint = Color.White,
                         modifier = Modifier
-                            .padding(end = 8.dp)
+                            .padding(end = 6.dp)
                             .size(20.dp)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(bounded = false)
-                            ) { onDismiss() }
+                            ) { onMenuClick() }
                     )
                 }
             }

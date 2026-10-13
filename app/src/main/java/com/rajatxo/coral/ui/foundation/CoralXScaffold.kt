@@ -64,6 +64,7 @@ fun CoralXScaffold(
     onSettingsClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     miniPlayer: @Composable (() -> Unit) = {},
+    onBackdropReady: (com.kyant.backdrop.backdrops.LayerBackdrop) -> Unit = {},
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
@@ -86,6 +87,13 @@ fun CoralXScaffold(
     val graphicsLayer = rememberGraphicsLayer()
     val glassBackdrop = rememberLayerBackdrop(graphicsLayer = graphicsLayer) {
         drawContent()
+    }
+
+    // ★ Notify the parent (MainActivity) that the backdrop is ready.
+    //   This lets TodaysTopCard (rendered outside the scaffold) use it for
+    //   drawBackdrop blur.
+    androidx.compose.runtime.LaunchedEffect(glassBackdrop) {
+        onBackdropReady(glassBackdrop)
     }
 
     CompositionLocalProvider(
