@@ -120,7 +120,8 @@ fun CoralXScaffold(
                         compositingStrategy = CompositingStrategy.Offscreen
                         clip = true
                         if (useRE) {
-                            renderEffect = BlurEffect(30.dp.toPx(), 30.dp.toPx())
+                            // 20dp blur — matches old Coral exactly.
+                            renderEffect = BlurEffect(20.dp.toPx(), 20.dp.toPx())
                         }
                     }
                     .drawWithContent {
@@ -129,20 +130,16 @@ fun CoralXScaffold(
                         } else {
                             drawContent()
                         }
-                        // ★ Smooth continuous fade — NO hard line at the bottom.
-                        // The blur fades smoothly from fully opaque at the top
-                        // to fully transparent at the bottom. No hard stops.
-                        // Uses many closely-spaced color stops for a buttery fade.
+                        // ★ Exact same DstIn gradient as old Coral:
+                        //   0.0 → Black (fully opaque)
+                        //   0.6 → Black (fully opaque until 60%)
+                        //   1.0 → Transparent (smoothly fades the bottom 40%)
                         drawRect(
                             brush = Brush.verticalGradient(
                                 colorStops = arrayOf(
-                                    0.00f to Color.Black,
-                                    0.15f to Color.Black,
-                                    0.30f to Color(0xCC000000),
-                                    0.50f to Color(0x88000000),
-                                    0.70f to Color(0x44000000),
-                                    0.85f to Color(0x22000000),
-                                    1.00f to Color.Transparent
+                                    0.0f to Color.Black,
+                                    0.6f to Color.Black,
+                                    1.0f to Color.Transparent
                                 )
                             ),
                             blendMode = BlendMode.DstIn
@@ -158,7 +155,7 @@ fun CoralXScaffold(
                                 shape = { RectangleShape },
                                 effects = {
                                     vibrancy()
-                                    blur(30f.dp.toPx())
+                                    blur(20f.dp.toPx())
                                 }
                             )
                     )
