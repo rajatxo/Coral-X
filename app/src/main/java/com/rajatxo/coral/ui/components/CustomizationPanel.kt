@@ -70,15 +70,18 @@ fun CustomizationPanel(
         exit = fadeOut() + scaleOut(targetScale = 0.8f),
         modifier = Modifier.fillMaxSize()
     ) {
-        // Scrim — tap outside to dismiss
+        // ★ RippleDismissContainer — water-ripple dismiss animation
+        com.rajatxo.coral.ui.components.RippleDismissContainer(
+            onDismiss = onDismiss,
+            scrimColor = Color.Black.copy(alpha = 0.4f)
+        ) { progress ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
+                    onClick = {} // consume clicks on panel area
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -88,6 +91,7 @@ fun CustomizationPanel(
                 modifier = Modifier
                     .padding(horizontal = 36.dp)
                     .size(width = 320.dp, height = 440.dp)
+                    .rippleFadeOut(progress)  // ★ fade out in sync with ripple
                     .clip(panelShape)
                     .then(
                         if (backdrop != null) {
@@ -184,6 +188,7 @@ fun CustomizationPanel(
                     )
                 }
             }
+        }
         }
     }
 }

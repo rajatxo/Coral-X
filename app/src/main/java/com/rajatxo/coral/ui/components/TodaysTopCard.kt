@@ -92,15 +92,21 @@ fun TodaysTopCard(
         exit = fadeOut() + scaleOut(targetScale = 0.8f),
         modifier = Modifier.fillMaxSize()
     ) {
-        // NO scrim — floating card on top of content (like old Coral).
-        // Tap outside to dismiss (transparent clickable layer).
+        // ★ RippleDismissContainer — water-ripple dismiss animation.
+        // Tapping outside the card creates a ripple from the tap point,
+        // and the card fades out in sync with the ripple.
+        com.rajatxo.coral.ui.components.RippleDismissContainer(
+            onDismiss = onDismiss,
+            scrimColor = Color.Black.copy(alpha = 0.3f)
+        ) { progress ->
+        // Card content — fades out in sync with ripple
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
+                    onClick = {} // consume clicks on the card area
                 ),
             contentAlignment = Alignment.TopEnd
         ) {
@@ -112,6 +118,7 @@ fun TodaysTopCard(
                     .padding(top = 72.dp, end = 16.dp)
                     .width(188.dp)
                     .height(61.dp)
+                    .rippleFadeOut(progress)  // ★ fade out in sync with ripple
                     .clip(cardShape)
                     .then(
                         if (backdrop != null) {
@@ -288,6 +295,7 @@ fun TodaysTopCard(
                     )
                 }
             }
+        }
         }
     }
 }
