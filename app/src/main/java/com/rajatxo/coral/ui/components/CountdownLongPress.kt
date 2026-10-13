@@ -1,7 +1,6 @@
 package com.rajatxo.coral.ui.components
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -9,17 +8,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,12 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -48,18 +43,15 @@ import kotlinx.coroutines.launch
 /**
  * ★ CountdownLongPress — wraps any composable with a 3-2-1 countdown timer.
  *
+ * The pointerInput is on the SAME Box as the content — so it only captures
+ * touches ON the content, NOT the whole screen.
+ *
  * When the user holds down on the child:
  *   Phase 1: 2 seconds hold (no UI feedback)
  *   Phase 2: Bubble pops up showing "Hold to move in [3]→[2]→[1]" (3 seconds)
  *   Phase 3: Countdown done → onLongPressComplete() called
  *
- * The bubble is a comic-style speech bubble with:
- *   - Dark pill with "Hold to move in" text
- *   - Small white capsule showing the countdown number (3/2/1)
- *   - Pointed tail pointing toward the child
- *
- * @param onLongPressComplete Called when the 5-second hold completes
- * @param content The composable to wrap
+ * Release before completion → bubble disappears, countdown cancelled.
  */
 @Composable
 fun CountdownLongPress(
@@ -89,6 +81,7 @@ fun CountdownLongPress(
         label = "bubbleAlpha"
     )
 
+    // ★ Content + pointerInput on the SAME Box — only captures touches on the content
     Box(modifier = modifier) {
         content()
 
@@ -97,8 +90,8 @@ fun CountdownLongPress(
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = with(density) { (-180).dp.toPx().toInt().dp } )
                     .graphicsLayer {
+                        translationX = with(density) { (-200).dp.toPx() }
                         scaleX = bubbleScale
                         scaleY = bubbleScale
                         alpha = bubbleAlpha
@@ -115,7 +108,7 @@ fun CountdownLongPress(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = "Hold to move in",
@@ -158,57 +151,53 @@ fun CountdownLongPress(
                 }
             }
         }
-    }
 
-    // ★ Pointer input — detect press-and-hold
-    Box(
-        modifier = Modifier
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val down = awaitFirstDown()
-                        down.consume()
-
-                        // Start countdown
-                        countdownJob?.cancel()
-                        countdownJob = scope.launch {
-                            // Phase 1: hold for 2 seconds (no UI feedback)
-                            delay(2000L)
-
-                            // Phase 2: pop up the bubble with countdown
-                            showBubble = true
-                            countdownNumber = 3
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            delay(1000L)
-
-                            countdownNumber = 2
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            delay(1000L)
-
-                            countdownNumber = 1
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            delay(1000L)
-
-                            // Phase 3: countdown done — hide bubble, fire callback
-                            showBubble = false
-                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            onLongPressComplete()
-                        }
-
-                        // Wait for release
+        // ★ Transparent overlay — SAME size as the content (wraps it)
+        // Captures press-and-hold ONLY on the content area, not the whole screen.
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
                         while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Main)
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) {
-                                change.consume()
-                                // Released — cancel countdown if still running
-                                countdownJob?.cancel()
+                            val down = awaitFirstDown()
+                            down.consume()
+
+                            countdownJob?.cancel()
+                            countdownJob = scope.launch {
+                                delay(2000L)
+                                showBubble = true
+                                countdownNumber = 3
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                delay(1000L)
+
+                                countdownNumber = 2
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                delay(1000L)
+
+                                countdownNumber = 1
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                delay(1000L)
+
                                 showBubble = false
-                                break
+                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                onLongPressComplete()
+                            }
+
+                            // Wait for release
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) {
+                                    change.consume()
+                                    countdownJob?.cancel()
+                                    showBubble = false
+                                    break
+                                }
                             }
                         }
                     }
                 }
-            }
-    )
+        )
+    }
 }

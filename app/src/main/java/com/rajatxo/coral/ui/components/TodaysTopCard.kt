@@ -86,8 +86,6 @@ fun TodaysTopCard(
     }
 
     // ★ Card enter/exit animation — smooth scale + fade on the CARD only.
-    // The scrim (from RippleDismissContainer) appears instantly at 30% opacity
-    // (no fade-in on the dark overlay — matches old Coral).
     val enterScale by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (visible && song != null) 1f else 0.8f,
         animationSpec = androidx.compose.animation.core.tween(250),
@@ -99,6 +97,11 @@ fun TodaysTopCard(
         label = "cardEnterAlpha"
     )
 
+    // ★ Read customization from CynthiaTodaysTopCardCustomization prefs.
+    // Changes from the arc dial apply LIVE — the card recomposes immediately.
+    val cardCustom by com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization
+        .customization.collectAsState()
+
     if (visible && song != null) {
         com.rajatxo.coral.ui.components.RippleDismissContainer(
             onDismiss = onDismiss,
@@ -109,16 +112,15 @@ fun TodaysTopCard(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopEnd
         ) {
-            // ★ Card size: 188×61dp with 50dp corner radius (old Coral defaults)
-            val cardShape = RoundedCornerShape(50.dp)
+            // ★ Card size from prefs — customization panel changes these live
+            val cardShape = androidx.compose.foundation.shape.RoundedCornerShape(cardCustom.cornerRadiusDp.dp)
             Box(
                 modifier = Modifier
                     .statusBarsPadding()
                     .padding(top = 72.dp, end = 16.dp)
-                    .width(188.dp)
-                    .height(61.dp)
+                    .width(cardCustom.widthDp.dp)
+                    .height(cardCustom.heightDp.dp)
                     .graphicsLayer {
-                        // ★ Enter animation (scale + fade) combined with ripple fade-out
                         compositingStrategy = CompositingStrategy.Offscreen
                         val totalAlpha = enterAlpha * (1f - progress)
                         alpha = totalAlpha
@@ -164,7 +166,8 @@ fun TodaysTopCard(
                     val isSongPinned = song != null && song.id in pinnedIds
 
                     // Cover size scales with card height (old Coral: heightDp - 18f)
-                    val coverSize = 43.dp  // 61dp - 18dp
+                    // Cover size scales with card height (old Coral: heightDp - 18f)
+                    val coverSize = (cardCustom.heightDp - 18f).coerceAtLeast(28f).dp
 
                     Box(
                         modifier = Modifier

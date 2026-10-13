@@ -170,17 +170,10 @@ private fun CoralXRoot() {
             )
         }
 
-        // ★ Cynthia Customization Panel — full customization card from old Coral
-        // with arc dial, shape picker, +1/-1 buttons, haptics, and working prefs.
-        com.rajatxo.coral.ui.cynthia.CynthiaCustomizationPanel(
-            visible = showCustomization,
-            onDismiss = { showCustomization = false },
-            backdrop = glassBackdrop,
-            mode = customizationMode
-        )
-
-        // ★ TodaysTopCard — rendered OUTSIDE the scaffold (like old Coral).
-        // Uses the scaffold's glass backdrop (captured via onBackdropReady).
+        // ★ TodaysTopCard — rendered BEFORE the customization panel so the
+        // panel appears ON TOP of the card (correct z-order).
+        // Card reads from CynthiaTodaysTopCardCustomization prefs — arc dial
+        // changes apply LIVE to the card below.
         com.rajatxo.coral.ui.components.TodaysTopCard(
             visible = showTopCard,
             song = topCardSong,
@@ -190,6 +183,15 @@ private fun CoralXRoot() {
                 showCustomization = true
             },
             onDismiss = { showTopCard = false }
+        )
+
+        // ★ Cynthia Customization Panel — rendered AFTER the card so it's ON TOP.
+        // The panel floats over the card — arc dial changes apply live.
+        com.rajatxo.coral.ui.cynthia.CynthiaCustomizationPanel(
+            visible = showCustomization,
+            onDismiss = { showCustomization = false },
+            backdrop = glassBackdrop,
+            mode = customizationMode
         )
     }
 }
