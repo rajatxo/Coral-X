@@ -335,7 +335,7 @@ fun QuickPicksScreen(
         if (speedDialEnabled) {
             item {
                 SpeedDialSection(
-                    songs = songs.take(26),
+                    songs = songs,
                     launchSeed = launchSeed,
                     pullProgress = ptrState.distanceFraction,
                     isRefreshing = isRefreshing,
