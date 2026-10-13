@@ -267,17 +267,18 @@ fun CoralXScaffold(
             val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
             val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-            // ★ Nav bar capsule — positioned INDEPENDENTLY (not in a Row with search FAB).
-            // Uses screen fraction for X/Y so it works on every phone (universal).
+            // ★ Nav bar — positioned at bottom of screen, offset from bottom-center.
+            // X = screen fraction * width (left-right position)
+            // Y = bottom padding from screen bottom = effBottomDp + gap
             com.rajatxo.coral.ui.components.CountdownLongPress(
                 onLongPressComplete = onNavBarLongPress,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .offset {
-                        androidx.compose.ui.unit.IntOffset(
-                            (navBarPos.first * screenWidthPx - navCustom.widthDp.dp.toPx() / 2).toInt(),
-                            -(navBarPos.second * screenHeightPx - effBottomDp.toPx() - navCustom.heightDp.dp.toPx() / 2).toInt()
-                        )
+                        val x = (navBarPos.first * screenWidthPx - navCustom.widthDp.dp.toPx() / 2f).toInt()
+                        val yFromBottom = (1f - navBarPos.second) * screenHeightPx
+                        val y = -(yFromBottom - effBottomDp.toPx() - navCustom.heightDp.dp.toPx() / 2f).toInt()
+                        androidx.compose.ui.unit.IntOffset(x, y)
                     }
             ) {
                 CoralXTabCapsule(
@@ -291,17 +292,16 @@ fun CoralXScaffold(
                 )
             }
 
-            // ★ Search FAB — positioned INDEPENDENTLY (not in a Row with nav bar).
-            // Uses screen fraction for X/Y so it works on every phone (universal).
+            // ★ Search FAB — positioned independently at bottom of screen.
             com.rajatxo.coral.ui.components.CountdownLongPress(
                 onLongPressComplete = onSearchLongPress,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .offset {
-                        androidx.compose.ui.unit.IntOffset(
-                            (searchPos.first * screenWidthPx - searchCustom.sizeDp.dp.toPx() / 2).toInt(),
-                            -(searchPos.second * screenHeightPx - effBottomDp.toPx() - searchCustom.sizeDp.dp.toPx() / 2).toInt()
-                        )
+                        val x = (searchPos.first * screenWidthPx - searchCustom.sizeDp.dp.toPx() / 2f).toInt()
+                        val yFromBottom = (1f - searchPos.second) * screenHeightPx
+                        val y = -(yFromBottom - effBottomDp.toPx() - searchCustom.sizeDp.dp.toPx() / 2f).toInt()
+                        androidx.compose.ui.unit.IntOffset(x, y)
                     }
             ) {
                 val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
