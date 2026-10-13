@@ -136,14 +136,18 @@ private fun CoralXRoot() {
             },
             onBackdropReady = { backdrop -> glassBackdrop = backdrop },
             miniPlayer = {
-                MiniPlayer(
-                    onExpand = { showFullPlayer = true },
-                    onDismiss = { /* Mini player dismissed — stays hidden until next song */ },
-                    onLongPress = {
-                        customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.MINI_PLAYER
-                        showCustomization = true
-                    }
-                )
+                // ★ Only show mini player when a song is loaded
+                val currentSong by PlaybackConnection.currentSong.collectAsState()
+                if (currentSong != null) {
+                    MiniPlayer(
+                        onExpand = { showFullPlayer = true },
+                        onDismiss = { /* Mini player dismissed — stays hidden until next song */ },
+                        onLongPress = {
+                            customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.MINI_PLAYER
+                            showCustomization = true
+                        }
+                    )
+                }
             }
         ) {
             when (activeTab) {

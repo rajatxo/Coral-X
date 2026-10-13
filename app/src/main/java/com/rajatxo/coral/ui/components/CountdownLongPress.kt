@@ -11,7 +11,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,20 +45,27 @@ import kotlinx.coroutines.launch
 /**
  * ★ CountdownLongPress — wraps any composable with a 3-2-1 countdown timer.
  *
- * The pointerInput is on the SAME Box as the content — so it only captures
- * touches ON the content, NOT the whole screen.
+ * The bubble appears ABOVE the content (not left) so it's never cut off
+ * by the screen edge. This works universally on every phone.
  *
- * When the user holds down on the child:
- *   Phase 1: 2 seconds hold (no UI feedback)
- *   Phase 2: Bubble pops up showing "Hold to move in [3]→[2]→[1]" (3 seconds)
- *   Phase 3: Countdown done → onLongPressComplete() called
+ * Phases:
+ *   1. Hold 2 seconds (no UI)
+ *   2. Bubble pops up showing "Hold to move in [3]→[2]→[1]" (3 seconds)
+ *   3. Countdown done → onLongPressComplete() called
  *
  * Release before completion → bubble disappears, countdown cancelled.
+ *
+ * @param bubblePosition Where to show the bubble relative to content.
+ *   TopCenter = above the content (default, works for nav bar, search FAB)
+ *   TopStart = above-left (for mini player on the left side)
  */
+enum class BubblePosition { TopCenter, TopStart }
+
 @Composable
 fun CountdownLongPress(
     modifier: Modifier = Modifier,
     onLongPressComplete: () -> Unit,
+    bubblePosition: BubblePosition = BubblePosition.TopCenter,
     content: @Composable () -> Unit
 ) {
     val view = LocalView.current
@@ -81,24 +90,29 @@ fun CountdownLongPress(
         label = "bubbleAlpha"
     )
 
-    // ★ Content + pointerInput on the SAME Box — only captures touches on the content
     Box(modifier = modifier) {
         content()
 
-        // Countdown bubble — appears to the LEFT of the content, anchored to it
+        // Countdown bubble — appears ABOVE the content
         if (bubbleAlpha > 0.01f) {
-            Row(
+            Column(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
+                    .then(
+                        when (bubblePosition) {
+                            BubblePosition.TopCenter -> Modifier.align(Alignment.TopCenter)
+                            BubblePosition.TopStart -> Modifier.align(Alignment.TopStart)
+                        }
+                    )
+                    .offset(y = with(density) { (-44).dp.toPx().toInt().dp })
                     .graphicsLayer {
-                        // Position bubble to the left of the content
-                        // Use negative translationX to push it left
-                        translationX = with(density) { (-160).dp.toPx() }
                         scaleX = bubbleScale
                         scaleY = bubbleScale
                         alpha = bubbleAlpha
                     },
-                verticalAlignment = Alignment.CenterVertically
+                horizontalAlignment = when (bubblePosition) {
+                    BubblePosition.TopCenter -> Alignment.CenterHorizontally
+                    BubblePosition.TopStart -> Alignment.Start
+                }
             ) {
                 // Main pill bubble
                 Box(
@@ -137,16 +151,16 @@ fun CountdownLongPress(
                         }
                     }
                 }
-                // Pointed tail (triangle pointing right → toward the content)
+                // Pointed tail (triangle pointing DOWN → toward the content below)
                 Canvas(
                     modifier = Modifier
-                        .size(width = 10.dp, height = 14.dp)
+                        .size(width = 10.dp, height = 8.dp)
                         .graphicsLayer { alpha = bubbleAlpha }
                 ) {
                     val path = Path().apply {
-                        moveTo(0f, 0f)
-                        lineTo(size.width, size.height / 2f)
-                        lineTo(0f, size.height)
+                        moveTo(size.width / 2f, size.height)
+                        lineTo(0f, 0f)
+                        lineTo(size.width, 0f)
                         close()
                     }
                     drawPath(path = path, color = Color(0xFF1A1A1A))
@@ -154,8 +168,7 @@ fun CountdownLongPress(
             }
         }
 
-        // ★ Transparent overlay — SAME size as the content (wraps it)
-        // Captures press-and-hold ONLY on the content area, not the whole screen.
+        // Transparent overlay — captures press-and-hold ONLY on the content area
         Box(
             modifier = Modifier
                 .matchParentSize()

@@ -108,6 +108,12 @@ fun MiniPlayer(
     // ★ Read the glass backdrop from the scaffold (for real frosted-glass blur)
     val backdrop = LocalGlassBackdrop.current
 
+    // ★ Wrap the mini player in CountdownLongPress for the 3-2-1 timer.
+    // Bubble appears ABOVE the mini player (TopStart) since it's on the left side.
+    com.rajatxo.coral.ui.components.CountdownLongPress(
+        onLongPressComplete = onLongPress,
+        bubblePosition = com.rajatxo.coral.ui.components.BubblePosition.TopStart
+    ) {
     Box(
         modifier = Modifier
             .padding(vertical = 4.dp)
@@ -375,5 +381,6 @@ fun MiniPlayer(
                 }
             }
         }
+    }
     }
 }
