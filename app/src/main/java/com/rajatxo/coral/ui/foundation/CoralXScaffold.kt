@@ -239,7 +239,7 @@ fun CoralXScaffold(
             //     = effBottomDp + 52dp + 10dp
             //   But effBottomDp is already applied inside MiniPlayer via
             //   consistentNavBarPadding, so we subtract it here.
-            val miniPlayerGapFromNavBar = 9.dp
+            val miniPlayerGapFromNavBar = 8.dp
             val tabCapsuleHeight = 52.dp
             Box(
                 modifier = Modifier
