@@ -23,8 +23,8 @@ android {
         applicationId = "com.rajatxo.coralx"
         minSdk = 24
         targetSdk = 35
-        versionCode = 514
-        versionName = "0.5.14"
+        versionCode = 700
+        versionName = "0.7.0"
     }
 
     signingConfigs {
