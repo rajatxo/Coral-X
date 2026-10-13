@@ -1,10 +1,7 @@
 package com.rajatxo.coral.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,22 +85,26 @@ fun TodaysTopCard(
         }
     }
 
-    AnimatedVisibility(
-        visible = visible && song != null,
-        enter = fadeIn() + scaleIn(initialScale = 0.8f),
-        exit = fadeOut() + scaleOut(targetScale = 0.8f),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // ★ RippleDismissContainer — water-ripple dismiss animation.
-        // Tapping outside the card creates a ripple from the tap point,
-        // and the card fades out in sync with the ripple.
+    // ★ Card enter/exit animation — smooth scale + fade on the CARD only.
+    // The scrim (from RippleDismissContainer) appears instantly at 30% opacity
+    // (no fade-in on the dark overlay — matches old Coral).
+    val enterScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible && song != null) 1f else 0.8f,
+        animationSpec = androidx.compose.animation.core.tween(250),
+        label = "cardEnterScale"
+    )
+    val enterAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible && song != null) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(250),
+        label = "cardEnterAlpha"
+    )
+
+    if (visible && song != null) {
         com.rajatxo.coral.ui.components.RippleDismissContainer(
             onDismiss = onDismiss,
             scrimColor = Color.Black.copy(alpha = 0.3f)
         ) { progress ->
         // Card content — positioned at top-end, NOT full-screen.
-        // Only the card itself consumes touches; the rest of the screen
-        // is transparent so the RippleDismissContainer scrim can detect taps.
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopEnd
@@ -114,7 +117,14 @@ fun TodaysTopCard(
                     .padding(top = 72.dp, end = 16.dp)
                     .width(188.dp)
                     .height(61.dp)
-                    .rippleFadeOut(progress)  // ★ fade out in sync with ripple
+                    .graphicsLayer {
+                        // ★ Enter animation (scale + fade) combined with ripple fade-out
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        val totalAlpha = enterAlpha * (1f - progress)
+                        alpha = totalAlpha
+                        scaleX = enterScale
+                        scaleY = enterScale
+                    }
                     .clip(cardShape)
                     .then(
                         if (backdrop != null) {

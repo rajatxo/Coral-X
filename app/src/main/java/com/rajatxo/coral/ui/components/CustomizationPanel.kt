@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,13 +65,20 @@ fun CustomizationPanel(
     title: String,
     backdrop: com.kyant.backdrop.backdrops.LayerBackdrop? = null
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn() + scaleIn(initialScale = 0.8f),
-        exit = fadeOut() + scaleOut(targetScale = 0.8f),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // ★ RippleDismissContainer — water-ripple dismiss animation
+    // ★ Panel enter/exit animation — smooth scale + fade on the PANEL only.
+    // The scrim (from RippleDismissContainer) appears instantly (no fade-in).
+    val enterScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible) 1f else 0.8f,
+        animationSpec = androidx.compose.animation.core.tween(250),
+        label = "panelEnterScale"
+    )
+    val enterAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(250),
+        label = "panelEnterAlpha"
+    )
+
+    if (visible) {
         com.rajatxo.coral.ui.components.RippleDismissContainer(
             onDismiss = onDismiss,
             scrimColor = Color.Black.copy(alpha = 0.4f)
@@ -85,7 +93,13 @@ fun CustomizationPanel(
                 modifier = Modifier
                     .padding(horizontal = 36.dp)
                     .size(width = 320.dp, height = 440.dp)
-                    .rippleFadeOut(progress)  // ★ fade out in sync with ripple
+                    .graphicsLayer {
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                        val totalAlpha = enterAlpha * (1f - progress)
+                        alpha = totalAlpha
+                        scaleX = enterScale
+                        scaleY = enterScale
+                    }
                     .clip(panelShape)
                     .then(
                         if (backdrop != null) {
