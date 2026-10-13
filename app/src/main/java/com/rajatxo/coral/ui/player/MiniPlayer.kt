@@ -120,13 +120,12 @@ fun MiniPlayer(
     Box(
         modifier = Modifier
             .padding(vertical = 4.dp)
-            // ★ NO consistentNavBarPadding() here — the scaffold's Box
-            // already positions the mini player 10dp above the tab capsule.
-            // Adding consistentNavBarPadding here would double-pad it,
-            // pushing it way too high (48dp extra).
             .graphicsLayer {
-                translationX = offsetX.value
-                translationY = offsetY.value.coerceAtLeast(-maxSwipeUpPx)
+                // ★ Base position from Cynthia prefs + drag offset on top
+                val baseX = miniPlayerCustom.offsetX
+                val baseY = miniPlayerCustom.offsetY
+                translationX = baseX + offsetX.value
+                translationY = baseY + offsetY.value.coerceAtLeast(-maxSwipeUpPx)
                 val s = scale.value
                 scaleX = s
                 scaleY = s
