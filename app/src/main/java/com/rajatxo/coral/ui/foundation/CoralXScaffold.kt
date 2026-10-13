@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -253,72 +254,85 @@ fun CoralXScaffold(
                 miniPlayer()
             }
 
-            // Bottom: TabCapsule + Search FAB
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = Dimensions.NavBarHorizontalPadding)
-                    .padding(bottom = effBottomDp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // ★ Read Cynthia customization prefs — values change LIVE from arc dial
-                val navCustom by com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization
-                    .customization.collectAsState()
-                val searchCustom by com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization
-                    .customization.collectAsState()
+            // ★ Read Cynthia customization prefs — values change LIVE from arc dial
+            val navCustom by com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization
+                .customization.collectAsState()
+            val searchCustom by com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization
+                .customization.collectAsState()
+            val navBarPos by com.rajatxo.coral.data.prefs.CynthiaTabCapsulePosition
+                .position.collectAsState()
+            val searchPos by com.rajatxo.coral.data.prefs.CynthiaSearchFabPosition
+                .position.collectAsState()
+            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+            val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+            val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-                // ★ Nav bar capsule — reads width/height/corner from Cynthia prefs
-                com.rajatxo.coral.ui.components.CountdownLongPress(
-                    onLongPressComplete = onNavBarLongPress
+            // ★ Nav bar capsule — positioned INDEPENDENTLY (not in a Row with search FAB).
+            // Uses screen fraction for X/Y so it works on every phone (universal).
+            com.rajatxo.coral.ui.components.CountdownLongPress(
+                onLongPressComplete = onNavBarLongPress,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            (navBarPos.first * screenWidthPx - navCustom.widthDp.dp.toPx() / 2).toInt(),
+                            -(navBarPos.second * screenHeightPx - effBottomDp.toPx() - navCustom.heightDp.dp.toPx() / 2).toInt()
+                        )
+                    }
+            ) {
+                CoralXTabCapsule(
+                    tabs = CoralTab.entries.toList(),
+                    activeTab = activeTab,
+                    onTabSelected = onTabSelected,
+                    backdrop = glassBackdrop,
+                    customWidth = navCustom.widthDp.dp,
+                    customHeight = navCustom.heightDp.dp,
+                    customShape = navCustom.shape.toComposeShape(navCustom.cornerRadiusDp, navCustom.widthDp)
+                )
+            }
+
+            // ★ Search FAB — positioned INDEPENDENTLY (not in a Row with nav bar).
+            // Uses screen fraction for X/Y so it works on every phone (universal).
+            com.rajatxo.coral.ui.components.CountdownLongPress(
+                onLongPressComplete = onSearchLongPress,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            (searchPos.first * screenWidthPx - searchCustom.sizeDp.dp.toPx() / 2).toInt(),
+                            -(searchPos.second * screenHeightPx - effBottomDp.toPx() - searchCustom.sizeDp.dp.toPx() / 2).toInt()
+                        )
+                    }
+            ) {
+                val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
+                Box(
+                    modifier = Modifier
+                        .size(searchCustom.sizeDp.dp)
+                        .clip(fabShape)
+                        .drawBackdrop(
+                            backdrop = glassBackdrop,
+                            shape = { fabShape },
+                            effects = {
+                                vibrancy()
+                                colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                blur(18f.dp.toPx())
+                            },
+                            onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onSearchClick
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
-                    CoralXTabCapsule(
-                        tabs = CoralTab.entries.toList(),
-                        activeTab = activeTab,
-                        onTabSelected = onTabSelected,
-                        backdrop = glassBackdrop,
-                        customWidth = navCustom.widthDp.dp,
-                        customHeight = navCustom.heightDp.dp,
-                        customShape = navCustom.shape.toComposeShape(navCustom.cornerRadiusDp, navCustom.widthDp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
-                // ★ Search FAB — reads size/corner from Cynthia prefs
-                com.rajatxo.coral.ui.components.CountdownLongPress(
-                    onLongPressComplete = onSearchLongPress
-                ) {
-                    // ★ Search FAB size + corner from Cynthia prefs
-                    val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
-                    Box(
-                        modifier = Modifier
-                            .size(searchCustom.sizeDp.dp)
-                            .clip(fabShape)
-                            .drawBackdrop(
-                                backdrop = glassBackdrop,
-                                shape = { fabShape },
-                                effects = {
-                                    vibrancy()
-                                    colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
-                                    blur(18f.dp.toPx())
-                                },
-                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
-                            )
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onSearchClick
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
                     Icon(
                         imageVector = CoralXIcons.Search,
                         contentDescription = "Search",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
-                    }
                 }
             }
         }

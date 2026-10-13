@@ -112,14 +112,17 @@ fun TodaysTopCard(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopEnd
         ) {
-            // ★ Card size from prefs — customization panel changes these live
-            val cardShape = androidx.compose.foundation.shape.RoundedCornerShape(cardCustom.cornerRadiusDp.dp)
+            // ★ Card size from prefs — clamped so values don't make card vanish
+            val safeWidth = cardCustom.widthDp.coerceIn(100f, 400f)
+            val safeHeight = cardCustom.heightDp.coerceIn(48f, 200f)
+            val safeCorner = cardCustom.cornerRadiusDp.coerceIn(0f, 50f)
+            val cardShape = androidx.compose.foundation.shape.RoundedCornerShape(safeCorner.dp)
             Box(
                 modifier = Modifier
                     .statusBarsPadding()
                     .padding(top = 72.dp, end = 16.dp)
-                    .width(cardCustom.widthDp.dp)
-                    .height(cardCustom.heightDp.dp)
+                    .width(safeWidth.dp)
+                    .height(safeHeight.dp)
                     .graphicsLayer {
                         compositingStrategy = CompositingStrategy.Offscreen
                         val totalAlpha = enterAlpha * (1f - progress)
