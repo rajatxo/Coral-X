@@ -99,15 +99,11 @@ fun TodaysTopCard(
             onDismiss = onDismiss,
             scrimColor = Color.Black.copy(alpha = 0.3f)
         ) { progress ->
-        // Card content — fades out in sync with ripple
+        // Card content — positioned at top-end, NOT full-screen.
+        // Only the card itself consumes touches; the rest of the screen
+        // is transparent so the RippleDismissContainer scrim can detect taps.
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {} // consume clicks on the card area
-                ),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopEnd
         ) {
             // ★ Card size: 188×61dp with 50dp corner radius (old Coral defaults)

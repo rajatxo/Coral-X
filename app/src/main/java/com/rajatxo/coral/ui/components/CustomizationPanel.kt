@@ -76,13 +76,7 @@ fun CustomizationPanel(
             scrimColor = Color.Black.copy(alpha = 0.4f)
         ) { progress ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {} // consume clicks on panel area
-                ),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
             // Glass panel
