@@ -103,7 +103,10 @@ fun MiniPlayer(
     var totalDragX by remember { mutableStateOf(0f) }
     var totalDragY by remember { mutableStateOf(0f) }
 
-    val pillShape: Shape = RoundedCornerShape(32.dp)
+    // ★ Read Cynthia customization prefs — arc dial changes apply LIVE
+    val miniPlayerCustom by com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization
+        .customization.collectAsState()
+    val pillShape: Shape = miniPlayerCustom.shape.toComposeShape(miniPlayerCustom.cornerRadiusDp, miniPlayerCustom.widthDp)
 
     // ★ Read the glass backdrop from the scaffold (for real frosted-glass blur)
     val backdrop = LocalGlassBackdrop.current
@@ -205,8 +208,8 @@ fun MiniPlayer(
         // Falls back to flat dark background when no backdrop (shouldn't happen).
         val bodyModifier = if (backdrop != null) {
             Modifier
-                .width(240.dp)
-                .height(64.dp)
+                .width(miniPlayerCustom.widthDp.dp)
+                .height(miniPlayerCustom.heightDp.dp)
                 .clip(pillShape)
                 .drawBackdrop(
                     backdrop = backdrop,
@@ -233,8 +236,8 @@ fun MiniPlayer(
                 )
         } else {
             Modifier
-                .width(240.dp)
-                .height(64.dp)
+                .width(miniPlayerCustom.widthDp.dp)
+                .height(miniPlayerCustom.heightDp.dp)
                 .clip(pillShape)
                 .background(Color.Black.copy(alpha = 0.6f))
                 .border(1.dp, Color.White.copy(alpha = 0.2f), pillShape)

@@ -26,6 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -260,7 +263,13 @@ fun CoralXScaffold(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // ★ Nav bar capsule — wrapped with CountdownLongPress (3-2-1 bubble)
+                // ★ Read Cynthia customization prefs — values change LIVE from arc dial
+                val navCustom by com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization
+                    .customization.collectAsState()
+                val searchCustom by com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization
+                    .customization.collectAsState()
+
+                // ★ Nav bar capsule — reads width/height/corner from Cynthia prefs
                 com.rajatxo.coral.ui.components.CountdownLongPress(
                     onLongPressComplete = onNavBarLongPress
                 ) {
@@ -268,18 +277,22 @@ fun CoralXScaffold(
                         tabs = CoralTab.entries.toList(),
                         activeTab = activeTab,
                         onTabSelected = onTabSelected,
-                        backdrop = glassBackdrop
+                        backdrop = glassBackdrop,
+                        customWidth = navCustom.widthDp.dp,
+                        customHeight = navCustom.heightDp.dp,
+                        customShape = navCustom.shape.toComposeShape(navCustom.cornerRadiusDp, navCustom.widthDp)
                     )
                 }
                 Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
-                // ★ Search FAB — wrapped with CountdownLongPress (3-2-1 bubble)
+                // ★ Search FAB — reads size/corner from Cynthia prefs
                 com.rajatxo.coral.ui.components.CountdownLongPress(
                     onLongPressComplete = onSearchLongPress
                 ) {
-                    val fabShape = CircleShape
+                    // ★ Search FAB size + corner from Cynthia prefs
+                    val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
                     Box(
                         modifier = Modifier
-                            .size(Dimensions.SearchFabSize)
+                            .size(searchCustom.sizeDp.dp)
                             .clip(fabShape)
                             .drawBackdrop(
                                 backdrop = glassBackdrop,
