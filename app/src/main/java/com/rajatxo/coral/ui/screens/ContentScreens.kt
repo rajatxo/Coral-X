@@ -1,7 +1,9 @@
 package com.rajatxo.coral.ui.screens
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,14 +29,19 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +81,8 @@ data class PlaceholderSong(
     val id: Long,
     val title: String,
     val artist: String,
-    val color: Color
+    val color: Color,
+    val albumArtUri: android.net.Uri? = null
 )
 
 /**
@@ -92,7 +100,8 @@ private fun Song.toPlaceholder(): PlaceholderSong {
         id = id,
         title = title,
         artist = artist,
-        color = color
+        color = color,
+        albumArtUri = albumArtUri
     )
 }
 
@@ -139,8 +148,12 @@ private val placeholderSongs = listOf(
  * nav bar + future mini player), horizontal=20dp, spacing=6dp.
  * Same values as old Coral.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuickPicksScreen() {
+fun QuickPicksScreen(
+    onTopCardClick: (com.rajatxo.coral.domain.model.Song) -> Unit = {},
+    onSpeedDialHeaderClick: () -> Unit = {}
+) {
     val context = LocalContext.current
     val greetingEnabled by SectionToggleManager.greetingEnabled.collectAsState()
     val todaysTopEnabled by SectionToggleManager.todaysTopEnabled.collectAsState()
@@ -148,74 +161,149 @@ fun QuickPicksScreen() {
     val recentEnabled by SectionToggleManager.recentEnabled.collectAsState()
     val morePicksEnabled by SectionToggleManager.morePicksEnabled.collectAsState()
 
-    // ★ Real songs from MediaStore (with cache for instant render)
-    // 1. Load cache synchronously on first composition → instant render
-    // 2. Scan MediaStore in background → update if different
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var refreshKey by remember { mutableIntStateOf(0) }
+    val launchSeed = remember(refreshKey) { kotlin.random.Random.nextInt() }
 
-    // Sync cache load — runs once when the screen first composes
+    var palette by remember { mutableStateOf(com.rajatxo.coral.util.CoralPalette.Default) }
+
     LaunchedEffect(Unit) {
-        // Load cache first (instant, ~5-20ms)
         val cached = withContext(Dispatchers.IO) { SongCache.load(context) }
         songs = cached
-
-        // Then scan MediaStore in background
         val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
         if (scanned.isNotEmpty()) {
             songs = scanned
-            // Save to cache for next launch
             withContext(Dispatchers.IO) { SongCache.save(context, scanned) }
         }
     }
 
-    // For now, the Recent and More Picks sections still use placeholder colors
-    // (until the SquareCard / LandscapeCard components are updated to load
-    // real album art via Coil3 + albumArtUri). We convert real Song objects
-    // to PlaceholderSong wrappers so the existing cards keep rendering.
-    // The songs list is loaded and ready for when we wire those components.
+    val currentSong by com.rajatxo.coral.playback.PlaybackConnection.currentSong.collectAsState()
+    LaunchedEffect(currentSong, songs) {
+        val songForPalette = currentSong ?: songs.firstOrNull { it.albumArtUri != null }
+        val artUri = songForPalette?.albumArtUri
+        if (artUri != null) {
+            com.rajatxo.coral.util.PaletteCache.get(artUri)?.let { palette = it }
+            val extracted = withContext(Dispatchers.IO) {
+                com.rajatxo.coral.util.extractPalette(context, artUri)
+            }
+            if (extracted != null) {
+                palette = extracted
+                com.rajatxo.coral.util.PaletteCache.put(artUri, extracted)
+            }
+        }
+    }
+
+    val vibrantTop by animateColorAsState(palette.primary.copy(alpha = 0.85f), tween(800), label = "bgVibrantTop")
+    val fade1 by animateColorAsState(palette.primary.copy(alpha = 0.65f), tween(800), label = "bgFade1")
+    val fade2 by animateColorAsState(palette.primary.copy(alpha = 0.45f), tween(800), label = "bgFade2")
+    val fade3 by animateColorAsState(palette.primary.copy(alpha = 0.28f), tween(800), label = "bgFade3")
+    val animatedTop by animateColorAsState(palette.primary.copy(alpha = 0.18f), tween(800), label = "bgTop")
+    val animatedMid by animateColorAsState(palette.primary.copy(alpha = 0.08f), tween(800), label = "bgMid")
+    val animatedBottom by animateColorAsState(Color(0xFF05050A), tween(800), label = "bgBottom")
+
     val recentSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
-        songs.sortedByDescending { it.dateAdded }.take(10).map { it.toPlaceholder() }
+        songs.sortedByDescending { it.dateAdded }.take(100).map { it.toPlaceholder() }
     } else {
         placeholderSongs.take(10)
     }
     val moreSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
-        songs.take(10).map { it.toPlaceholder() }
+        songs.shuffled(kotlin.random.Random(launchSeed + 2)).take(100).map { it.toPlaceholder() }
     } else {
         placeholderSongs.takeLast(10)
     }
 
-    // ★ Use the scaffold's computed insets (status bar + header height + bottom nav)
     val density = LocalDensity.current
     val insets = LocalCoralXWindowInsets.current
     val topPadding = with(density) { insets.getTop(density).toDp() }
     val bottomPadding = with(density) { insets.getBottom(density).toDp() }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            top = topPadding,
-            bottom = bottomPadding,
-            start = 20.dp,
-            end = 20.dp
-        ),
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+    val ptrState = rememberPullToRefreshState()
+    var isRefreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF05050A))
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f  to vibrantTop,
+                        0.10f to fade1,
+                        0.15f to fade2,
+                        0.20f to fade3,
+                        0.30f to animatedTop,
+                        0.55f to animatedMid,
+                        1.0f  to animatedBottom
+                    )
+                )
+            )
     ) {
-        // 1. Greeting + Mood
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                refreshKey++
+                scope.launch {
+                    val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
+                    if (scanned.isNotEmpty()) {
+                        songs = scanned
+                        withContext(Dispatchers.IO) { SongCache.save(context, scanned) }
+                    }
+                    delay(500)
+                    isRefreshing = false
+                }
+            },
+            state = ptrState,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {}
+        ) {
+        LazyColumn(
+            contentPadding = PaddingValues(
+                top = topPadding,
+                bottom = bottomPadding,
+                start = 20.dp,
+                end = 20.dp
+            ),
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
         if (greetingEnabled) {
             item { GreetingMoodHeader(userName = "Rajat", modifier = Modifier.padding(bottom = 6.dp)) }
         }
 
-        // 2. Today's Top
         if (todaysTopEnabled) {
-            item { TodaysTopSection(modifier = Modifier.padding(bottom = 6.dp)) }
+            item {
+                TodaysTopSection(
+                    songs = songs,
+                    onCapsuleClick = { tappedSong -> onTopCardClick(tappedSong) },
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
         }
 
-        // 3. Speed Dial
         if (speedDialEnabled) {
-            item { SpeedDialSection(modifier = Modifier.padding(bottom = 6.dp)) }
+            item {
+                SpeedDialSection(
+                    songs = songs,
+                    launchSeed = launchSeed,
+                    pullProgress = ptrState.distanceFraction,
+                    isRefreshing = isRefreshing,
+                    onHeaderClick = onSpeedDialHeaderClick,
+                    onTileClick = { song ->
+                        com.rajatxo.coral.playback.PlaybackConnection.playSong(song, songs)
+                    },
+                    onDiceClick = {
+                        if (songs.isNotEmpty()) {
+                            val random = songs.random()
+                            com.rajatxo.coral.playback.PlaybackConnection.playSong(random, songs)
+                        }
+                    },
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+            }
         }
 
-        // 4. Recent (LazyRow of SquareCards)
         if (recentEnabled) {
             item { SectionHeader(title = "Recent", count = recentSongs.size) }
             item {
@@ -228,6 +316,13 @@ fun QuickPicksScreen() {
                             title = song.title,
                             artist = song.artist,
                             color = song.color,
+                            albumArtUri = song.albumArtUri,
+                            onClick = {
+                                val realSong = songs.firstOrNull { it.id == song.id }
+                                if (realSong != null) {
+                                    com.rajatxo.coral.playback.PlaybackConnection.playSong(realSong, songs)
+                                }
+                            },
                             modifier = Modifier.width(140.dp).height(200.dp)
                         )
                     }
@@ -235,7 +330,6 @@ fun QuickPicksScreen() {
             }
         }
 
-        // 5. More picks (LazyRow of LandscapeCards)
         if (morePicksEnabled) {
             item { SectionHeader(title = "More picks", count = moreSongs.size) }
             item {
@@ -248,11 +342,20 @@ fun QuickPicksScreen() {
                             title = song.title,
                             artist = song.artist,
                             color = song.color,
+                            albumArtUri = song.albumArtUri,
+                            onClick = {
+                                val realSong = songs.firstOrNull { it.id == song.id }
+                                if (realSong != null) {
+                                    com.rajatxo.coral.playback.PlaybackConnection.playSong(realSong, songs)
+                                }
+                            },
                             modifier = Modifier.width(160.dp).height(220.dp)
                         )
                     }
                 }
             }
+        }
+        }
         }
     }
 }
@@ -266,6 +369,7 @@ private fun SquareCard(
     title: String,
     artist: String,
     color: Color,
+    albumArtUri: android.net.Uri? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
@@ -341,6 +445,7 @@ private fun LandscapeCard(
     title: String,
     artist: String,
     color: Color,
+    albumArtUri: android.net.Uri? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
