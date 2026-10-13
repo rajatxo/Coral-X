@@ -72,6 +72,10 @@ private fun CoralXRoot() {
     var showFullPlayer by remember { mutableStateOf(false) }
     var customizationTitle by remember { mutableStateOf("") }
     var showCustomization by remember { mutableStateOf(false) }
+    // ★ Cynthia customization mode — which component to customize
+    var customizationMode by remember {
+        mutableStateOf<com.rajatxo.coral.ui.cynthia.CustomizationMode?>(null)
+    }
 
     // ★ TodaysTopCard state — hoisted OUTSIDE the scaffold (like old Coral).
     // The card is a SIBLING of the scaffold content, so drawBackdrop samples
@@ -128,7 +132,7 @@ private fun CoralXRoot() {
                     onExpand = { showFullPlayer = true },
                     onDismiss = { /* Mini player dismissed — stays hidden until next song */ },
                     onLongPress = {
-                        customizationTitle = "Mini Player"
+                        customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.MINI_PLAYER
                         showCustomization = true
                     }
                 )
@@ -158,13 +162,13 @@ private fun CoralXRoot() {
             )
         }
 
-        // ★ Customization panel — appears on long-press of mini player / nav / search
-        // or when user taps the more (•••) icon on TodaysTopCard
-        com.rajatxo.coral.ui.components.CustomizationPanel(
+        // ★ Cynthia Customization Panel — full customization card from old Coral
+        // with arc dial, shape picker, +1/-1 buttons, haptics, and working prefs.
+        com.rajatxo.coral.ui.cynthia.CynthiaCustomizationPanel(
             visible = showCustomization,
             onDismiss = { showCustomization = false },
-            title = customizationTitle,
-            backdrop = glassBackdrop
+            backdrop = glassBackdrop,
+            mode = customizationMode
         )
 
         // ★ TodaysTopCard — rendered OUTSIDE the scaffold (like old Coral).
@@ -174,7 +178,7 @@ private fun CoralXRoot() {
             song = topCardSong,
             backdrop = glassBackdrop,
             onMenuClick = {
-                customizationTitle = "Today's Top"
+                customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.TOP_CARD
                 showCustomization = true
             },
             onDismiss = { showTopCard = false }

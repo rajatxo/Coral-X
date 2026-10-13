@@ -21,5 +21,13 @@ class CoralApplication : Application() {
         SpeedDialPinStore.init(this)
         SpeedDialModeManager.init(this)
         PlaybackHistory.init(this)
+        com.rajatxo.coral.data.prefs.SoundHapticsManager.init(this)
+        // ★ Init all Cynthia customization prefs
+        com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization.init(this)
+        com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization.init(this)
+        com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization.init(this)
+        com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization.init(this)
+        com.rajatxo.coral.data.prefs.CynthiaTabCapsulePosition.init(this)
+        com.rajatxo.coral.data.prefs.CynthiaSearchFabPosition.init(this)
     }
 }
