@@ -90,7 +90,47 @@ fun CountdownLongPress(
         label = "bubbleAlpha"
     )
 
-    Box(modifier = modifier) {
+    // ★ Use a Box that wraps content. The pointerInput is on THIS Box's modifier
+    // (not a separate overlay) so it doesn't affect layout.
+    Box(modifier = modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val down = awaitFirstDown(requireUnconsumed = false)
+
+                countdownJob?.cancel()
+                countdownJob = scope.launch {
+                    delay(2000L)
+                    showBubble = true
+                    countdownNumber = 3
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    delay(1000L)
+
+                    countdownNumber = 2
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    delay(1000L)
+
+                    countdownNumber = 1
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    delay(1000L)
+
+                    showBubble = false
+                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    onLongPressComplete()
+                }
+
+                // Wait for release
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull() ?: break
+                    if (!change.pressed) {
+                        countdownJob?.cancel()
+                        showBubble = false
+                        break
+                    }
+                }
+            }
+        }
+    }) {
         content()
 
         // Countdown bubble — appears ABOVE the content
@@ -167,54 +207,5 @@ fun CountdownLongPress(
                 }
             }
         }
-
-        // Transparent overlay — detects press-and-hold WITHOUT blocking child gestures.
-        // Uses PointerEventPass.Initial so it runs BEFORE the child, but does NOT
-        // consume events — they pass through to the tab capsule's drag gesture detector.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            // Do NOT consume the down event — let the child (tab capsule) get it too
-
-                            countdownJob?.cancel()
-                            countdownJob = scope.launch {
-                                delay(2000L)
-                                showBubble = true
-                                countdownNumber = 3
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                delay(1000L)
-
-                                countdownNumber = 2
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                delay(1000L)
-
-                                countdownNumber = 1
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                delay(1000L)
-
-                                showBubble = false
-                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                                onLongPressComplete()
-                            }
-
-                            // Wait for release — do NOT consume, let child process drags
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) {
-                                    // Do NOT consume — let the child get the up event too
-                                    countdownJob?.cancel()
-                                    showBubble = false
-                                    break
-                                }
-                            }
-                        }
-                    }
-                }
-        )
     }
 }

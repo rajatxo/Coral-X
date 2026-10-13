@@ -548,25 +548,27 @@ private fun CustomizationPanelContent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // ★ Shape picker (still useful — shapes don't fit on a dial)
-        ShapePicker(
-            selected = when (effectiveMode) {
-                CustomizationMode.NAV_BAR -> navCustom.shape
-                CustomizationMode.SEARCH_FAB -> searchCustom.shape
-                CustomizationMode.TOP_CARD -> topCardCustom.shape
-                CustomizationMode.MINI_PLAYER -> miniPlayerCustom.shape
-            },
-            onSelected = {
-                when (effectiveMode) {
-                    CustomizationMode.NAV_BAR -> CynthiaNavBarCustomization.setShape(it)
-                    CustomizationMode.SEARCH_FAB -> CynthiaSearchFabCustomization.setShape(it)
-                    CustomizationMode.TOP_CARD ->
-                        com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization.setShape(it)
-                    CustomizationMode.MINI_PLAYER ->
-                        com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization.setShape(it)
+        // ★ Shape picker — NOT shown for SEARCH_FAB (useless for a small button)
+        if (effectiveMode != CustomizationMode.SEARCH_FAB) {
+            ShapePicker(
+                selected = when (effectiveMode) {
+                    CustomizationMode.NAV_BAR -> navCustom.shape
+                    CustomizationMode.TOP_CARD -> topCardCustom.shape
+                    CustomizationMode.MINI_PLAYER -> miniPlayerCustom.shape
+                    else -> navCustom.shape
+                },
+                onSelected = {
+                    when (effectiveMode) {
+                        CustomizationMode.NAV_BAR -> CynthiaNavBarCustomization.setShape(it)
+                        CustomizationMode.TOP_CARD ->
+                            com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization.setShape(it)
+                        CustomizationMode.MINI_PLAYER ->
+                            com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization.setShape(it)
+                        else -> {}
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }
 
