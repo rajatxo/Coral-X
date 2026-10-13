@@ -77,38 +77,41 @@ internal fun CynthiaCustomizationPanel(
     isNavBar: Boolean = true,
     mode: CustomizationMode? = null
 ) {
-    // ★ Draggable card state — the user can move the card anywhere by
-    //   dragging the handle bar at the top.
     var cardOffsetX by remember { mutableStateOf(0f) }
     var cardOffsetY by remember { mutableStateOf(0f) }
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn() + scaleIn(initialScale = 0.8f),
-        exit = fadeOut() + scaleOut(targetScale = 0.8f)
-    ) {
-        // ★ RippleDismissContainer — wraps scrim + AGSL water ripple + panel.
-        //   Tapping anywhere outside the panel triggers a real water ripple
-        //   that expands from the tap point. The panel fades out + scales
-        //   down slightly + drifts upward in sync with the ripple — feels
-        //   like it's being absorbed into the ripple, not just disappearing.
+    // ★ Card enter/exit — smooth scale+fade on the PANEL only.
+    // Scrim appears INSTANTLY (no fade-in on the dark overlay).
+    val enterScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible) 1f else 0.8f,
+        animationSpec = androidx.compose.animation.core.tween(250),
+        label = "panelEnterScale"
+    )
+    val enterAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(250),
+        label = "panelEnterAlpha"
+    )
+
+    if (visible) {
         RippleDismissContainer(onDismiss = onDismiss) { progress ->
-            // ★ SQUARE panel — 320×440dp, glass morphism, rounded 24dp corners.
-            //   Draggable via offset (cardOffsetX, cardOffsetY) updated by the
-            //   drag handle at the top.
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(horizontal = 36.dp)
                     .size(width = 320.dp, height = 440.dp)
                     .offset { androidx.compose.ui.unit.IntOffset(cardOffsetX.toInt(), cardOffsetY.toInt()) }
-                    // ★ Panel fade-out — fades + scales + drifts up in sync
-                    //   with the ripple animation.
-                    .rippleFadeOut(progress)
+                    .graphicsLayer {
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                        val totalAlpha = enterAlpha * (1f - progress)
+                        alpha = totalAlpha
+                        scaleX = enterScale
+                        scaleY = enterScale
+                    }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {} // consume click so it doesn't dismiss
+                        onClick = {}
                     )
             ) {
                 val panelShape = RoundedCornerShape(24.dp)
@@ -177,6 +180,7 @@ internal fun CynthiaCustomizationPanel(
                     }
                 }
             }
+        }
         }
     }
 }

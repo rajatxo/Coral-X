@@ -85,13 +85,15 @@ fun CountdownLongPress(
     Box(modifier = modifier) {
         content()
 
-        // Countdown bubble — appears to the LEFT of the content
+        // Countdown bubble — appears to the LEFT of the content, anchored to it
         if (bubbleAlpha > 0.01f) {
             Row(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .graphicsLayer {
-                        translationX = with(density) { (-200).dp.toPx() }
+                        // Position bubble to the left of the content
+                        // Use negative translationX to push it left
+                        translationX = with(density) { (-160).dp.toPx() }
                         scaleX = bubbleScale
                         scaleY = bubbleScale
                         alpha = bubbleAlpha
