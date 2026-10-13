@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -77,13 +78,9 @@ fun TodaysTopCard(
     onDismiss: () -> Unit,
     onMenuClick: () -> Unit = {}
 ) {
-    // Auto-dismiss after 10 seconds
-    LaunchedEffect(visible, song) {
-        if (visible && song != null) {
-            delay(10000)
-            onDismiss()
-        }
-    }
+    // ★ NO auto-dismiss timer — the card stays open until user dismisses it.
+    // When the customization panel is open, the card must NOT dismiss.
+    // The card dismisses only via: tap outside, or close button.
 
     // ★ Card enter/exit animation — smooth scale + fade on the CARD only.
     val enterScale by androidx.compose.animation.core.animateFloatAsState(
@@ -121,6 +118,12 @@ fun TodaysTopCard(
                 modifier = Modifier
                     .statusBarsPadding()
                     .padding(top = 72.dp, end = 16.dp)
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            cardCustom.offsetX.toInt(),
+                            cardCustom.offsetY.toInt()
+                        )
+                    }
                     .width(safeWidth.dp)
                     .height(safeHeight.dp)
                     .graphicsLayer {

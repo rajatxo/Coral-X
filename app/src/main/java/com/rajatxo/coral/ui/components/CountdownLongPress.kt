@@ -168,15 +168,17 @@ fun CountdownLongPress(
             }
         }
 
-        // Transparent overlay — captures press-and-hold ONLY on the content area
+        // Transparent overlay — detects press-and-hold WITHOUT blocking child gestures.
+        // Uses PointerEventPass.Initial so it runs BEFORE the child, but does NOT
+        // consume events — they pass through to the tab capsule's drag gesture detector.
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
-                            val down = awaitFirstDown()
-                            down.consume()
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            // Do NOT consume the down event — let the child (tab capsule) get it too
 
                             countdownJob?.cancel()
                             countdownJob = scope.launch {
@@ -199,12 +201,12 @@ fun CountdownLongPress(
                                 onLongPressComplete()
                             }
 
-                            // Wait for release
+                            // Wait for release — do NOT consume, let child process drags
                             while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull() ?: break
                                 if (!change.pressed) {
-                                    change.consume()
+                                    // Do NOT consume — let the child get the up event too
                                     countdownJob?.cancel()
                                     showBubble = false
                                     break
