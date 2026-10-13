@@ -129,12 +129,20 @@ fun CoralXScaffold(
                         } else {
                             drawContent()
                         }
+                        // ★ Smooth continuous fade — NO hard line at the bottom.
+                        // The blur fades smoothly from fully opaque at the top
+                        // to fully transparent at the bottom. No hard stops.
+                        // Uses many closely-spaced color stops for a buttery fade.
                         drawRect(
                             brush = Brush.verticalGradient(
                                 colorStops = arrayOf(
-                                    0.0f to Color.Black,
-                                    0.6f to Color.Black,
-                                    1.0f to Color.Transparent
+                                    0.00f to Color.Black,
+                                    0.15f to Color.Black,
+                                    0.30f to Color(0xCC000000),
+                                    0.50f to Color(0x88000000),
+                                    0.70f to Color(0x44000000),
+                                    0.85f to Color(0x22000000),
+                                    1.00f to Color.Transparent
                                 )
                             ),
                             blendMode = BlendMode.DstIn
