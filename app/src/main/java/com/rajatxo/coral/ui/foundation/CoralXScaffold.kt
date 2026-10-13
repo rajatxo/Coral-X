@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -95,9 +94,7 @@ fun CoralXScaffold(
         drawContent()
     }
 
-    // ★ Notify the parent (MainActivity) that the backdrop is ready.
-    //   This lets TodaysTopCard (rendered outside the scaffold) use it for
-    //   drawBackdrop blur.
+    // ★ Notify parent that backdrop is ready
     androidx.compose.runtime.LaunchedEffect(glassBackdrop) {
         onBackdropReady(glassBackdrop)
     }
@@ -233,109 +230,93 @@ fun CoralXScaffold(
                 }
             }
 
-            // ★ Read Cynthia customization prefs
+            // ★ Mini player — sits 10dp ABOVE the tab capsule (like old Coral).
+            // Old Coral math: navBarCenterFromBottom + (capsuleHeight/2) + 10dp gap.
+            // Here: the tab capsule Row has bottom padding = effBottomDp.
+            //   Tab capsule height = 52dp. So tab capsule TOP is at:
+            //     effBottomDp + 52dp (from screen bottom)
+            //   Mini player bottom = tab capsule top + 10dp gap
+            //     = effBottomDp + 52dp + 10dp
+            //   But effBottomDp is already applied inside MiniPlayer via
+            //   consistentNavBarPadding, so we subtract it here.
+            val miniPlayerGapFromNavBar = 10.dp
+            val tabCapsuleHeight = 52.dp
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        bottom = effBottomDp + tabCapsuleHeight + miniPlayerGapFromNavBar
+                    )
+            ) {
+                miniPlayer()
+            }
+
+            // ★ Read Cynthia customization prefs for size/shape only (position via Row layout)
             val navCustom by com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization
                 .customization.collectAsState()
             val searchCustom by com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization
                 .customization.collectAsState()
-            val navBarPos by com.rajatxo.coral.data.prefs.CynthiaTabCapsulePosition
-                .position.collectAsState()
-            val searchPos by com.rajatxo.coral.data.prefs.CynthiaSearchFabPosition
-                .position.collectAsState()
-            val miniPlayerCustom by com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization
-                .customization.collectAsState()
-            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-            val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-            val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-            // ★ Nav bar — positioned using screen fractions. Universal — adapts to every phone.
-            // X fraction * screenWidth = center X. Y fraction * screenHeight = center Y from TOP.
-            // All positioned from BottomStart (0,0 = bottom-left corner).
-            com.rajatxo.coral.ui.components.CountdownLongPress(
-                onLongPressComplete = onNavBarLongPress,
+            // Bottom: TabCapsule + Search FAB — v0.5.48 layout (Row, BottomCenter)
+            Row(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset {
-                        // X: navBarPos.first is a fraction (0-1) of screen width
-                        val x = (navBarPos.first * screenWidthPx - navCustom.widthDp.dp.toPx() / 2f).toInt()
-                        // Y: navBarPos.second is fraction from TOP. From BOTTOM = (1 - frac) * screenHeight
-                        // effBottomDp is the system nav bar inset (gesture/button nav)
-                        val yFromBottom = (1f - navBarPos.second) * screenHeightPx
-                        // Position: from BottomStart, negative Y pushes UP
-                        val y = -(yFromBottom - effBottomDp.toPx()).toInt()
-                        androidx.compose.ui.unit.IntOffset(x, y)
-                    }
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = Dimensions.NavBarHorizontalPadding)
+                    .padding(bottom = effBottomDp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                CoralXTabCapsule(
-                    tabs = CoralTab.entries.toList(),
-                    activeTab = activeTab,
-                    onTabSelected = onTabSelected,
-                    backdrop = glassBackdrop,
-                    customWidth = navCustom.widthDp.dp,
-                    customHeight = navCustom.heightDp.dp,
-                    customShape = navCustom.shape.toComposeShape(navCustom.cornerRadiusDp, navCustom.widthDp)
-                )
-            }
-
-            // ★ Search FAB — same positioning approach as nav bar
-            com.rajatxo.coral.ui.components.CountdownLongPress(
-                onLongPressComplete = onSearchLongPress,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset {
-                        val x = (searchPos.first * screenWidthPx - searchCustom.sizeDp.dp.toPx() / 2f).toInt()
-                        val yFromBottom = (1f - searchPos.second) * screenHeightPx
-                        val y = -(yFromBottom - effBottomDp.toPx()).toInt()
-                        androidx.compose.ui.unit.IntOffset(x, y)
-                    }
-            ) {
-                val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
-                Box(
-                    modifier = Modifier
-                        .size(searchCustom.sizeDp.dp)
-                        .clip(fabShape)
-                        .drawBackdrop(
-                            backdrop = glassBackdrop,
-                            shape = { fabShape },
-                            effects = {
-                                vibrancy()
-                                colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
-                                blur(18f.dp.toPx())
-                            },
-                            onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
-                        )
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onSearchClick
-                        ),
-                    contentAlignment = Alignment.Center
+                // Nav bar — wrapped with CountdownLongPress for 3-2-1 timer
+                com.rajatxo.coral.ui.components.CountdownLongPress(
+                    onLongPressComplete = onNavBarLongPress
                 ) {
-                    Icon(
-                        imageVector = CoralXIcons.Search,
-                        contentDescription = "Search",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                    CoralXTabCapsule(
+                        tabs = CoralTab.entries.toList(),
+                        activeTab = activeTab,
+                        onTabSelected = onTabSelected,
+                        backdrop = glassBackdrop,
+                        customWidth = navCustom.widthDp.dp,
+                        customHeight = navCustom.heightDp.dp,
+                        customShape = navCustom.shape.toComposeShape(navCustom.cornerRadiusDp, navCustom.widthDp)
                     )
                 }
-            }
-
-            // ★ Mini player — positioned ABOVE the nav bar using screen fractions.
-            // Sits at the same X as the nav bar but higher Y.
-            // Default: same X as nav bar (43%), Y = nav bar Y - nav bar height - mini player height - 10dp gap
-            val miniPlayerY = navBarPos.second - (navCustom.heightDp / screenHeightPx * density.density) - (miniPlayerCustom.heightDp / screenHeightPx * density.density) - (10f / screenHeightPx * density.density)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset {
-                        val x = (navBarPos.first * screenWidthPx - miniPlayerCustom.widthDp.dp.toPx() / 2f).toInt()
-                        val yFromBottom = (1f - miniPlayerY) * screenHeightPx
-                        val y = -(yFromBottom - effBottomDp.toPx()).toInt()
-                        androidx.compose.ui.unit.IntOffset(x, y)
+                Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
+                // Search FAB — wrapped with CountdownLongPress
+                com.rajatxo.coral.ui.components.CountdownLongPress(
+                    onLongPressComplete = onSearchLongPress
+                ) {
+                    val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
+                    Box(
+                        modifier = Modifier
+                            .size(searchCustom.sizeDp.dp)
+                            .clip(fabShape)
+                            .drawBackdrop(
+                                backdrop = glassBackdrop,
+                                shape = { fabShape },
+                                effects = {
+                                    vibrancy()
+                                    colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                    blur(18f.dp.toPx())
+                                },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
+                            )
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onSearchClick
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralXIcons.Search,
+                            contentDescription = "Search",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
-            ) {
-                miniPlayer()
+                }
             }
         }
     }
