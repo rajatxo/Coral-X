@@ -233,28 +233,7 @@ fun CoralXScaffold(
                 }
             }
 
-            // ★ Mini player — sits 10dp ABOVE the tab capsule (like old Coral).
-            // Old Coral math: navBarCenterFromBottom + (capsuleHeight/2) + 10dp gap.
-            // Here: the tab capsule Row has bottom padding = effBottomDp.
-            //   Tab capsule height = 52dp. So tab capsule TOP is at:
-            //     effBottomDp + 52dp (from screen bottom)
-            //   Mini player bottom = tab capsule top + 10dp gap
-            //     = effBottomDp + 52dp + 10dp
-            //   But effBottomDp is already applied inside MiniPlayer via
-            //   consistentNavBarPadding, so we subtract it here.
-            val miniPlayerGapFromNavBar = 10.dp
-            val tabCapsuleHeight = 52.dp
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(
-                        bottom = effBottomDp + tabCapsuleHeight + miniPlayerGapFromNavBar
-                    )
-            ) {
-                miniPlayer()
-            }
-
-            // ★ Read Cynthia customization prefs — values change LIVE from arc dial
+            // ★ Read Cynthia customization prefs
             val navCustom by com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization
                 .customization.collectAsState()
             val searchCustom by com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization
@@ -263,21 +242,27 @@ fun CoralXScaffold(
                 .position.collectAsState()
             val searchPos by com.rajatxo.coral.data.prefs.CynthiaSearchFabPosition
                 .position.collectAsState()
+            val miniPlayerCustom by com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization
+                .customization.collectAsState()
             val configuration = androidx.compose.ui.platform.LocalConfiguration.current
             val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
             val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
-            // ★ Nav bar — positioned at bottom of screen, offset from bottom-center.
-            // X = screen fraction * width (left-right position)
-            // Y = bottom padding from screen bottom = effBottomDp + gap
+            // ★ Nav bar — positioned using screen fractions. Universal — adapts to every phone.
+            // X fraction * screenWidth = center X. Y fraction * screenHeight = center Y from TOP.
+            // All positioned from BottomStart (0,0 = bottom-left corner).
             com.rajatxo.coral.ui.components.CountdownLongPress(
                 onLongPressComplete = onNavBarLongPress,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .offset {
+                        // X: navBarPos.first is a fraction (0-1) of screen width
                         val x = (navBarPos.first * screenWidthPx - navCustom.widthDp.dp.toPx() / 2f).toInt()
+                        // Y: navBarPos.second is fraction from TOP. From BOTTOM = (1 - frac) * screenHeight
+                        // effBottomDp is the system nav bar inset (gesture/button nav)
                         val yFromBottom = (1f - navBarPos.second) * screenHeightPx
-                        val y = -(yFromBottom - effBottomDp.toPx() - navCustom.heightDp.dp.toPx() / 2f).toInt()
+                        // Position: from BottomStart, negative Y pushes UP
+                        val y = -(yFromBottom - effBottomDp.toPx()).toInt()
                         androidx.compose.ui.unit.IntOffset(x, y)
                     }
             ) {
@@ -292,7 +277,7 @@ fun CoralXScaffold(
                 )
             }
 
-            // ★ Search FAB — positioned independently at bottom of screen.
+            // ★ Search FAB — same positioning approach as nav bar
             com.rajatxo.coral.ui.components.CountdownLongPress(
                 onLongPressComplete = onSearchLongPress,
                 modifier = Modifier
@@ -300,7 +285,7 @@ fun CoralXScaffold(
                     .offset {
                         val x = (searchPos.first * screenWidthPx - searchCustom.sizeDp.dp.toPx() / 2f).toInt()
                         val yFromBottom = (1f - searchPos.second) * screenHeightPx
-                        val y = -(yFromBottom - effBottomDp.toPx() - searchCustom.sizeDp.dp.toPx() / 2f).toInt()
+                        val y = -(yFromBottom - effBottomDp.toPx()).toInt()
                         androidx.compose.ui.unit.IntOffset(x, y)
                     }
             ) {
@@ -334,6 +319,23 @@ fun CoralXScaffold(
                         modifier = Modifier.size(24.dp)
                     )
                 }
+            }
+
+            // ★ Mini player — positioned ABOVE the nav bar using screen fractions.
+            // Sits at the same X as the nav bar but higher Y.
+            // Default: same X as nav bar (43%), Y = nav bar Y - nav bar height - mini player height - 10dp gap
+            val miniPlayerY = navBarPos.second - (navCustom.heightDp / screenHeightPx * density.density) - (miniPlayerCustom.heightDp / screenHeightPx * density.density) - (10f / screenHeightPx * density.density)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset {
+                        val x = (navBarPos.first * screenWidthPx - miniPlayerCustom.widthDp.dp.toPx() / 2f).toInt()
+                        val yFromBottom = (1f - miniPlayerY) * screenHeightPx
+                        val y = -(yFromBottom - effBottomDp.toPx()).toInt()
+                        androidx.compose.ui.unit.IntOffset(x, y)
+                    }
+            ) {
+                miniPlayer()
             }
         }
     }
