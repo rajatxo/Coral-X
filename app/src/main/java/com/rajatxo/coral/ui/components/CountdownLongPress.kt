@@ -133,18 +133,15 @@ fun CountdownLongPress(
     }) {
         content()
 
-        // Countdown bubble — appears ABOVE the content
+        // Countdown bubble — appears ABOVE the content, does NOT affect layout.
+        // Uses graphicsLayer(translationY) so it floats above without changing
+        // the Box's measured size → no Row shift.
         if (bubbleAlpha > 0.01f) {
             Column(
                 modifier = Modifier
-                    .then(
-                        when (bubblePosition) {
-                            BubblePosition.TopCenter -> Modifier.align(Alignment.TopCenter)
-                            BubblePosition.TopStart -> Modifier.align(Alignment.TopStart)
-                        }
-                    )
-                    .offset(y = with(density) { (-44).dp.toPx().toInt().dp })
+                    .align(Alignment.TopCenter)
                     .graphicsLayer {
+                        translationY = with(density) { (-50).dp.toPx() }
                         scaleX = bubbleScale
                         scaleY = bubbleScale
                         alpha = bubbleAlpha

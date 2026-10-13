@@ -289,6 +289,14 @@ private fun CustomizationPanelContent(
             },
             Field("Corner", topCardCustom.cornerRadiusDp, 0f..50f, "dp") {
                 com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization.setCornerRadius(it)
+            },
+            Field("Pos X", topCardCustom.offsetX, -1000f..1000f, "") {
+                com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization
+                    .setOffset(it, topCardCustom.offsetY)
+            },
+            Field("Pos Y", topCardCustom.offsetY, -2000f..2000f, "") {
+                com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization
+                    .setOffset(topCardCustom.offsetX, it)
             }
         )
         CustomizationMode.MINI_PLAYER -> listOf(
@@ -300,6 +308,14 @@ private fun CustomizationPanelContent(
             },
             Field("Corner", miniPlayerCustom.cornerRadiusDp, 0f..50f, "dp") {
                 com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization.setCornerRadius(it)
+            },
+            Field("Pos X", miniPlayerCustom.offsetX, -1000f..1000f, "") {
+                com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization
+                    .setOffset(it, miniPlayerCustom.offsetY)
+            },
+            Field("Pos Y", miniPlayerCustom.offsetY, -2000f..2000f, "") {
+                com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization
+                    .setOffset(miniPlayerCustom.offsetX, it)
             }
         )
     }
