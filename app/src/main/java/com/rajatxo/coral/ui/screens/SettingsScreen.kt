@@ -119,6 +119,12 @@ fun SettingsScreen(
         SectionToggleRow("More picks", "more_picks")
         Spacer(modifier = Modifier.height(24.dp))
 
+        // ─── Section: Speed Dial Mode ───────────
+        SettingsSectionHeader("SPEED DIAL")
+        Spacer(modifier = Modifier.height(8.dp))
+        SpeedDialModeToggle()
+        Spacer(modifier = Modifier.height(24.dp))
+
         // ─── Section: About ──────────────────────────
         SettingsSectionHeader("ABOUT")
         Spacer(modifier = Modifier.height(8.dp))
@@ -139,6 +145,60 @@ private fun SettingsSectionHeader(title: String) {
         modifier = Modifier.padding(horizontal = 20.dp),
         letterSpacing = 1.sp
     )
+}
+
+@Composable
+private fun SpeedDialModeToggle() {
+    val mode by com.rajatxo.coral.data.prefs.SpeedDialModeManager.mode.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF1A1A1A).copy(alpha = 0.6f))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Speed Dial Mode",
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = CalSansFamily
+        )
+        Text(
+            text = "Choose how songs are picked",
+            color = Color.White.copy(alpha = 0.5f),
+            fontSize = 13.sp,
+            fontFamily = CalSansFamily
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black.copy(alpha = 0.4f))
+                .padding(4.dp)
+        ) {
+            ChannelButton(
+                text = "Random",
+                subtitle = "Shuffle all songs",
+                isSelected = mode == com.rajatxo.coral.data.prefs.SpeedDialModeManager.SpeedDialMode.RANDOM,
+                accentColor = Color(0xFFFFD166),
+                modifier = Modifier.weight(1f),
+                onClick = { com.rajatxo.coral.data.prefs.SpeedDialModeManager.setMode(com.rajatxo.coral.data.prefs.SpeedDialModeManager.SpeedDialMode.RANDOM) }
+            )
+            ChannelButton(
+                text = "Last Played",
+                subtitle = "Based on recent artist",
+                isSelected = mode == com.rajatxo.coral.data.prefs.SpeedDialModeManager.SpeedDialMode.LAST_PLAYED,
+                accentColor = Color(0xFF6B9EFF),
+                modifier = Modifier.weight(1f),
+                onClick = { com.rajatxo.coral.data.prefs.SpeedDialModeManager.setMode(com.rajatxo.coral.data.prefs.SpeedDialModeManager.SpeedDialMode.LAST_PLAYED) }
+            )
+        }
+    }
 }
 
 @Composable
