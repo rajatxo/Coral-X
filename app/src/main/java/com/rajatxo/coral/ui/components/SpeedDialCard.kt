@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
@@ -38,8 +36,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -80,6 +76,8 @@ fun SpeedDialCard(
     backdrop: LayerBackdrop? = null,
     modifier: Modifier = Modifier
 ) {
+    if (!visible) return
+
     val cardCustom by com.rajatxo.coral.data.prefs.CynthiaTodaysTopCardCustomization
         .customization.collectAsState()
 
@@ -135,58 +133,32 @@ fun SpeedDialCard(
     var dragAccumulator by remember { mutableStateOf(0f) }
     val dragThreshold = 40f
 
-    // ★ Card enter animation — same as TodaysTopCard
-    val enterScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (visible) 1f else 0.8f,
-        animationSpec = androidx.compose.animation.core.tween(250),
-        label = "sdCardEnterScale"
-    )
-    val enterAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(250),
-        label = "sdCardEnterAlpha"
-    )
-
-    if (!visible) return
-
     // ─── Card shape (from prefs — same defaults as TodaysTopCard) ──────
-    val safeWidth = cardCustom.widthDp.coerceIn(100f, 400f)
-    val safeHeight = cardCustom.heightDp.coerceIn(48f, 200f)
-    val safeCorner = cardCustom.cornerRadiusDp.coerceIn(0f, 50f)
-    val cardShape = RoundedCornerShape(safeCorner.dp)
+    val cornerRadius = cardCustom.cornerRadiusDp.dp
+    val cardShape = RoundedCornerShape(cornerRadius)
 
+    // ★ RippleDismissContainer — wraps the scrim + AGSL ripple + card.
+    //   The card content receives `progress` (0 → 1) so it can fade/scale
+    //   in sync with the ripple animation. Card fades out + scales down
+    //   slightly + drifts upward — feels like it's being absorbed into
+    //   the ripple, not just disappearing.
     RippleDismissContainer(onDismiss = onDismiss) { progress ->
-        // ★ Positioned at TopEnd — SAME as TodaysTopCard
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                ),
-            contentAlignment = Alignment.TopEnd
-        ) {
-            Box(
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, end = 16.dp)
-                    .offset {
-                        androidx.compose.ui.unit.IntOffset(
-                            cardCustom.offsetX.toInt(),
-                            cardCustom.offsetY.toInt()
-                        )
-                    }
-                    .width(safeWidth.dp)
-                    .height(safeHeight.dp)
-                    .graphicsLayer {
-                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                        val totalAlpha = enterAlpha * (1f - progress)
-                        alpha = totalAlpha
-                        scaleX = enterScale
-                        scaleY = enterScale
-                    }
-                    .clip(cardShape)
+                .align(Alignment.Center)
+                .offset {
+                    androidx.compose.ui.unit.IntOffset(
+                        cardCustom.offsetX.toInt(),
+                        cardCustom.offsetY.toInt()
+                    )
+                }
+                .width(cardCustom.widthDp.dp)
+                .height(cardCustom.heightDp.dp)
+                // ★ Card fade-out — MUST come BEFORE .clip() and .drawBackdrop()
+                //   so graphicsLayer wraps the ENTIRE capsule (glass + border +
+                //   content). If placed after, only the inner content fades.
+                .rippleFadeOut(progress)
+                .clip(cardShape)
                 .then(
                     if (backdrop != null) {
                         Modifier.drawBackdrop(
@@ -294,7 +266,6 @@ fun SpeedDialCard(
                     )
                 }
             }
-        }
         }
     }
 }

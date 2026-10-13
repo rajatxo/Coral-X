@@ -38,7 +38,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,9 +52,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
 import kotlinx.coroutines.delay
@@ -105,13 +101,6 @@ fun PermissionScreen(
             }
         )
     }
-    var allFilesGranted by remember {
-        mutableStateOf(
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                android.os.Environment.isExternalStorageManager()
-            } else true
-        )
-    }
 
     // Hint state: shows when user denies a permission
     var showHint by remember { mutableStateOf(false) }
@@ -125,8 +114,7 @@ fun PermissionScreen(
         label = "permissionFade"
     )
 
-    // When required permissions granted (NOT including allFilesGranted —
-    // that one is optional), wait 800ms then fade out + proceed.
+    // When required permissions granted, wait 800ms then fade out + proceed.
     LaunchedEffect(notifGranted, musicGranted) {
         if (notifGranted && musicGranted) {
             delay(800)
@@ -177,47 +165,11 @@ fun PermissionScreen(
         musicLauncher.launch(perms)
     }
 
-    fun requestAllFiles() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:${context.packageName}")
-                }
-                context.startActivity(intent)
-            } catch (_: Exception) {
-                try {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                } catch (_: Exception) {
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.fromParts("package", context.packageName, null)
-                    }
-                    context.startActivity(intent)
-                }
-            }
-        } else {
-            allFilesGranted = true
-        }
-    }
-
     fun openAppSettings() {
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", context.packageName, null)
         }
         context.startActivity(intent)
-    }
-
-    // Re-check allFilesGranted on resume
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                allFilesGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    android.os.Environment.isExternalStorageManager()
-                } else true
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Box(
@@ -292,28 +244,6 @@ fun PermissionScreen(
                         else requestMusic()
                     }
                 )
-
-                // All files access — optional, Android 11+ only
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    DarkGlassPermissionCard(
-                        icon = {
-                            Icon(
-                                imageVector = CoralXIcons.Wallpaper,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        },
-                        title = "All files access",
-                        subtitle = "Embed covers into file metadata",
-                        isOn = allFilesGranted,
-                        isOptional = true,
-                        onClick = {
-                            if (allFilesGranted) openAppSettings()
-                            else requestAllFiles()
-                        }
-                    )
-                }
             }
 
             // --- Hint ---

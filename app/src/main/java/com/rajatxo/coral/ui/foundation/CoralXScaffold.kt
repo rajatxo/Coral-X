@@ -2,6 +2,7 @@ package com.rajatxo.coral.ui.foundation
 
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,22 +66,27 @@ fun CoralXScaffold(
     onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onNavBarLongPress: () -> Unit = {},
+    onSearchLongPress: () -> Unit = {},
+    miniPlayer: @Composable (() -> Unit) = {},
+    onBackdropReady: (com.kyant.backdrop.backdrops.LayerBackdrop) -> Unit = {},
     content: @Composable () -> Unit
 ) {
     val density = LocalDensity.current
+    // ★ ConsistentNavBarPadding — always at least 48dp (button nav height).
+    // This ensures the tab capsule + FAB sit at the same height on gesture-nav
+    // phones (thin gesture bar ~16dp) and button-nav phones (~48dp).
     val systemBottom = WindowInsets.navigationBars.getBottom(density)
-    val minBottom = with(density) { 48.dp.toPx().toInt() }
+    val minBottom = with(density) { Dimensions.MinBottomSystemInset.toPx().toInt() }
     val effBottomDp = with(density) { maxOf(systemBottom, minBottom).toDp() }
     val effTopDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
 
-    // ★ Content fills the WHOLE screen — no forced top inset.
-    // The blur header (120dp) sits ON TOP of the content as a sibling.
-    // Screens read LocalCoralXWindowInsets to know how much top padding
-    // to add (status bar + header height) so content starts below the header.
-    // This matches old Coral's layout — content scrolls UNDER the blur.
+    // ★ Content top padding = status bar + header row height + gap.
+    // Matches old Coral: 108dp total from screen top to first content.
+    // (statusBar ~24dp + header 56dp + gap 28dp = ~108dp)
     val insets = WindowInsets(
-        top = effTopDp + 56.dp,    // status bar + header row height
-        bottom = effBottomDp + 80.dp // nav bar + tab capsule + FAB height
+        top = effTopDp + Dimensions.TopBarHeight + Dimensions.ContentTopGap,
+        bottom = effBottomDp + Dimensions.MiniPlayerHeight + Dimensions.BottomStackGap
     )
 
     val graphicsLayer = rememberGraphicsLayer()
@@ -85,7 +94,15 @@ fun CoralXScaffold(
         drawContent()
     }
 
-    CompositionLocalProvider(LocalCoralXWindowInsets provides insets) {
+    // ★ Notify parent that backdrop is ready
+    androidx.compose.runtime.LaunchedEffect(glassBackdrop) {
+        onBackdropReady(glassBackdrop)
+    }
+
+    CompositionLocalProvider(
+        LocalCoralXWindowInsets provides insets,
+        LocalGlassBackdrop provides glassBackdrop
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -103,17 +120,18 @@ fun CoralXScaffold(
                 content()
             }
 
-            // Header blur (120dp)
+            // Header blur
             val useRE = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(120.dp)
+                    .height(Dimensions.TopBlurHeight)
                     .graphicsLayer {
                         compositingStrategy = CompositingStrategy.Offscreen
                         clip = true
                         if (useRE) {
+                            // 20dp blur — matches old Coral exactly.
                             renderEffect = BlurEffect(20.dp.toPx(), 20.dp.toPx())
                         }
                     }
@@ -123,6 +141,10 @@ fun CoralXScaffold(
                         } else {
                             drawContent()
                         }
+                        // ★ Exact same DstIn gradient as old Coral:
+                        //   0.0 → Black (fully opaque)
+                        //   0.6 → Black (fully opaque until 60%)
+                        //   1.0 → Transparent (smoothly fades the bottom 40%)
                         drawRect(
                             brush = Brush.verticalGradient(
                                 colorStops = arrayOf(
@@ -157,13 +179,13 @@ fun CoralXScaffold(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(56.dp)
-                    .padding(horizontal = 16.dp),
+                    .height(Dimensions.TopBarHeight)
+                    .padding(horizontal = Dimensions.NavBarHorizontalPadding),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(Dimensions.TopBarIconTouchSize)
                         .clip(CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -176,13 +198,13 @@ fun CoralXScaffold(
                         imageVector = CoralXIcons.CircleUser,
                         contentDescription = "Profile",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(Dimensions.TopBarIconSize)
                     )
                 }
                 Text(
                     text = title,
                     color = Color.White,
-                    fontSize = 24.sp,
+                    fontSize = Dimensions.TitleFontSize.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = CalSansFamily,
                     textAlign = TextAlign.Center,
@@ -190,7 +212,7 @@ fun CoralXScaffold(
                 )
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(Dimensions.TopBarIconTouchSize)
                         .clip(CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -203,56 +225,97 @@ fun CoralXScaffold(
                         imageVector = CoralXIcons.Cog,
                         contentDescription = "Settings",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(Dimensions.TopBarIconSize)
                     )
                 }
             }
 
-            // Bottom: TabCapsule + Search FAB
+            // ★ Mini player — sits 10dp ABOVE the tab capsule (like old Coral).
+            // Old Coral math: navBarCenterFromBottom + (capsuleHeight/2) + 10dp gap.
+            // Here: the tab capsule Row has bottom padding = effBottomDp.
+            //   Tab capsule height = 52dp. So tab capsule TOP is at:
+            //     effBottomDp + 52dp (from screen bottom)
+            //   Mini player bottom = tab capsule top + 10dp gap
+            //     = effBottomDp + 52dp + 10dp
+            //   But effBottomDp is already applied inside MiniPlayer via
+            //   consistentNavBarPadding, so we subtract it here.
+            val miniPlayerGapFromNavBar = 6.dp
+            val tabCapsuleHeight = 52.dp
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        bottom = effBottomDp + tabCapsuleHeight + miniPlayerGapFromNavBar
+                    )
+            ) {
+                miniPlayer()
+            }
+
+            // ★ Read Cynthia customization prefs for size/shape only (position via Row layout)
+            val navCustom by com.rajatxo.coral.data.prefs.CynthiaNavBarCustomization
+                .customization.collectAsState()
+            val searchCustom by com.rajatxo.coral.data.prefs.CynthiaSearchFabCustomization
+                .customization.collectAsState()
+
+            // Bottom: TabCapsule + Search FAB — v0.5.48 layout (Row, BottomCenter)
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = Dimensions.NavBarHorizontalPadding)
                     .padding(bottom = effBottomDp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CoralXTabCapsule(
-                    tabs = CoralTab.entries.toList(),
-                    activeTab = activeTab,
-                    onTabSelected = onTabSelected,
-                    backdrop = glassBackdrop
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                val fabShape = CircleShape
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(fabShape)
-                        .drawBackdrop(
-                            backdrop = glassBackdrop,
-                            shape = { fabShape },
-                            effects = {
-                                vibrancy()
-                                colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
-                                blur(18f.dp.toPx())
-                            },
-                            onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
-                        )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onSearchClick
-                        ),
-                    contentAlignment = Alignment.Center
+                // Nav bar — wrapped with CountdownLongPress for 3-2-1 timer
+                com.rajatxo.coral.ui.components.CountdownLongPress(
+                    onLongPressComplete = onNavBarLongPress
                 ) {
-                    Icon(
-                        imageVector = CoralXIcons.Search,
-                        contentDescription = "Search",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                    CoralXTabCapsule(
+                        tabs = CoralTab.entries.toList(),
+                        activeTab = activeTab,
+                        onTabSelected = onTabSelected,
+                        backdrop = glassBackdrop,
+                        customWidth = navCustom.widthDp.dp,
+                        customHeight = navCustom.heightDp.dp,
+                        customShape = navCustom.shape.toComposeShape(navCustom.cornerRadiusDp, navCustom.widthDp)
                     )
+                }
+                Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
+                // Search FAB — wrapped with CountdownLongPress
+                com.rajatxo.coral.ui.components.CountdownLongPress(
+                    onLongPressComplete = onSearchLongPress
+                ) {
+                    val fabShape = searchCustom.shape.toComposeShape(searchCustom.cornerRadiusDp, searchCustom.sizeDp)
+                    Box(
+                        modifier = Modifier
+                            .size(searchCustom.sizeDp.dp)
+                            .clip(fabShape)
+                            .drawBackdrop(
+                                backdrop = glassBackdrop,
+                                shape = { fabShape },
+                                effects = {
+                                    vibrancy()
+                                    colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                    blur(18f.dp.toPx())
+                                },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
+                            )
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onSearchClick
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralXIcons.Search,
+                            contentDescription = "Search",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
         }

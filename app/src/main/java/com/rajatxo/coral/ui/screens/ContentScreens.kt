@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import coil3.request.transformations
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,8 +91,8 @@ data class PlaceholderSong(
  * be rendered by the existing SquareCard / LandscapeCard components.
  *
  * The color is derived deterministically from the song's id (hash → hue)
- * so each song gets a stable, distinct placeholder color until we wire
- * Coil3 + albumArtUri to load real album art.
+ * so each song gets a stable, distinct placeholder color.
+ * albumArtUri is passed through for Coil3 to load real album art.
  */
 private fun Song.toPlaceholder(): PlaceholderSong {
     val hue = (id % 360).toFloat()
@@ -161,15 +162,26 @@ fun QuickPicksScreen(
     val recentEnabled by SectionToggleManager.recentEnabled.collectAsState()
     val morePicksEnabled by SectionToggleManager.morePicksEnabled.collectAsState()
 
+    // ★ Real songs from MediaStore (with cache for instant render)
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+
+    // ★ Refresh key — bumped on pull-to-refresh. Re-rolls the random seed
+    //   so Speed Dial + More Picks get new song selections.
     var refreshKey by remember { mutableIntStateOf(0) }
     val launchSeed = remember(refreshKey) { kotlin.random.Random.nextInt() }
 
+    // ★ Palette-based background gradient (same as old Coral)
+    // Extracts dominant color from the first song's album art → vibrant
+    // gradient at top (behind blur header) fading to near-black at bottom.
+    // This gives the blur header something colorful to sample → visible blur.
     var palette by remember { mutableStateOf(com.rajatxo.coral.util.CoralPalette.Default) }
 
     LaunchedEffect(Unit) {
+        // Load cache first (instant, ~5-20ms)
         val cached = withContext(Dispatchers.IO) { SongCache.load(context) }
         songs = cached
+
+        // Then scan MediaStore in background
         val scanned = withContext(Dispatchers.IO) { MusicScanner.scanMusic(context) }
         if (scanned.isNotEmpty()) {
             songs = scanned
@@ -177,12 +189,18 @@ fun QuickPicksScreen(
         }
     }
 
+    // ★ Extract palette from the CURRENTLY PLAYING song's album art.
+    // When a song plays, the background gradient changes to match its colors.
+    // If no song is playing, fall back to the first song in the library.
     val currentSong by com.rajatxo.coral.playback.PlaybackConnection.currentSong.collectAsState()
     LaunchedEffect(currentSong, songs) {
+        // Prefer the current playing song; fall back to first song with art
         val songForPalette = currentSong ?: songs.firstOrNull { it.albumArtUri != null }
         val artUri = songForPalette?.albumArtUri
         if (artUri != null) {
+            // Check cache first (instant — no extraction needed)
             com.rajatxo.coral.util.PaletteCache.get(artUri)?.let { palette = it }
+            // Extract in background
             val extracted = withContext(Dispatchers.IO) {
                 com.rajatxo.coral.util.extractPalette(context, artUri)
             }
@@ -193,13 +211,35 @@ fun QuickPicksScreen(
         }
     }
 
-    val vibrantTop by animateColorAsState(palette.primary.copy(alpha = 0.85f), tween(800), label = "bgVibrantTop")
-    val fade1 by animateColorAsState(palette.primary.copy(alpha = 0.65f), tween(800), label = "bgFade1")
-    val fade2 by animateColorAsState(palette.primary.copy(alpha = 0.45f), tween(800), label = "bgFade2")
-    val fade3 by animateColorAsState(palette.primary.copy(alpha = 0.28f), tween(800), label = "bgFade3")
-    val animatedTop by animateColorAsState(palette.primary.copy(alpha = 0.18f), tween(800), label = "bgTop")
-    val animatedMid by animateColorAsState(palette.primary.copy(alpha = 0.08f), tween(800), label = "bgMid")
-    val animatedBottom by animateColorAsState(Color(0xFF05050A), tween(800), label = "bgBottom")
+    // ★ Animated background gradient colors (smooth transition when palette changes)
+    val vibrantTop by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.85f),
+        animationSpec = tween(800), label = "bgVibrantTop"
+    )
+    val fade1 by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.65f),
+        animationSpec = tween(800), label = "bgFade1"
+    )
+    val fade2 by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.45f),
+        animationSpec = tween(800), label = "bgFade2"
+    )
+    val fade3 by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.28f),
+        animationSpec = tween(800), label = "bgFade3"
+    )
+    val animatedTop by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.18f),
+        animationSpec = tween(800), label = "bgTop"
+    )
+    val animatedMid by animateColorAsState(
+        targetValue = palette.primary.copy(alpha = 0.08f),
+        animationSpec = tween(800), label = "bgMid"
+    )
+    val animatedBottom by animateColorAsState(
+        targetValue = Color(0xFF05050A),
+        animationSpec = tween(800), label = "bgBottom"
+    )
 
     val recentSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
         songs.sortedByDescending { it.dateAdded }.take(100).map { it.toPlaceholder() }
@@ -207,6 +247,7 @@ fun QuickPicksScreen(
         placeholderSongs.take(10)
     }
     val moreSongs: List<PlaceholderSong> = if (songs.isNotEmpty()) {
+        // ★ Shuffled with launchSeed so refresh re-rolls the selection
         songs.shuffled(kotlin.random.Random(launchSeed + 2)).take(100).map { it.toPlaceholder() }
     } else {
         placeholderSongs.takeLast(10)
@@ -217,10 +258,14 @@ fun QuickPicksScreen(
     val topPadding = with(density) { insets.getTop(density).toDp() }
     val bottomPadding = with(density) { insets.getBottom(density).toDp() }
 
+    // ★ Pull-to-refresh state
     val ptrState = rememberPullToRefreshState()
     var isRefreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // ★ Background: solid dark base + palette gradient on top
+    // The gradient fills the ENTIRE screen, including behind the blur header.
+    // This gives the blur vibrant colors to sample → visible frosted-glass effect.
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -242,6 +287,7 @@ fun QuickPicksScreen(
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
+                // Re-scan MediaStore + bump refreshKey (re-rolls speed dial + more picks)
                 isRefreshing = true
                 refreshKey++
                 scope.launch {
@@ -256,7 +302,7 @@ fun QuickPicksScreen(
             },
             state = ptrState,
             modifier = Modifier.fillMaxSize(),
-            indicator = {}
+            indicator = {}  // Suppress default indicator — BugLineRefreshIndicator is in Speed Dial header
         ) {
         LazyColumn(
             contentPadding = PaddingValues(
@@ -268,20 +314,25 @@ fun QuickPicksScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+        // 1. Greeting + Mood
         if (greetingEnabled) {
             item { GreetingMoodHeader(userName = "Rajat", modifier = Modifier.padding(bottom = 6.dp)) }
         }
 
+        // 2. Today's Top — reads from PlaybackHistory.dailyPlays internally
         if (todaysTopEnabled) {
             item {
                 TodaysTopSection(
                     songs = songs,
-                    onCapsuleClick = { tappedSong -> onTopCardClick(tappedSong) },
+                    onCapsuleClick = { tappedSong ->
+                        onTopCardClick(tappedSong)
+                    },
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
             }
         }
 
+        // 3. Speed Dial — pass 26 songs + launchSeed for refresh re-roll
         if (speedDialEnabled) {
             item {
                 SpeedDialSection(
@@ -304,6 +355,7 @@ fun QuickPicksScreen(
             }
         }
 
+        // 4. Recent (LazyRow of SquareCards)
         if (recentEnabled) {
             item { SectionHeader(title = "Recent", count = recentSongs.size) }
             item {
@@ -318,6 +370,7 @@ fun QuickPicksScreen(
                             color = song.color,
                             albumArtUri = song.albumArtUri,
                             onClick = {
+                                // Find the real Song from the songs list and play it
                                 val realSong = songs.firstOrNull { it.id == song.id }
                                 if (realSong != null) {
                                     com.rajatxo.coral.playback.PlaybackConnection.playSong(realSong, songs)
@@ -330,6 +383,7 @@ fun QuickPicksScreen(
             }
         }
 
+        // 5. More picks (LazyRow of LandscapeCards)
         if (morePicksEnabled) {
             item { SectionHeader(title = "More picks", count = moreSongs.size) }
             item {
@@ -373,6 +427,7 @@ private fun SquareCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val cardShape = RoundedCornerShape(14.dp)
     Box(
         modifier = modifier
@@ -384,36 +439,79 @@ private fun SquareCard(
                 onClick = onClick
             )
     ) {
-        // Background: solid color with gradient (placeholder for album art)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(color, color.copy(alpha = 0.6f))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = CoralXIcons.Music,
+        // ═══ Spiral 2.0-style album art blur-blend ═══
+        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+        // BlurTransformation (cached in memory) for smooth scrolling.
+        if (albumArtUri != null) {
+            val blurredRequest = remember(albumArtUri) {
+                coil3.request.ImageRequest.Builder(context)
+                    .data(albumArtUri)
+                    .transformations(com.rajatxo.coral.util.BlurTransformation(36.dp))
+                    .build()
+            }
+            coil3.compose.AsyncImage(
+                model = blurredRequest,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(48.dp)
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         }
 
-        // Text overlay at bottom
+        // Layer 2 (top): SHARP album art — top 75%, DstIn blend at bottom
+        if (albumArtUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.75f)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val blendHeightPx = 30.dp.toPx()
+                        val imageHeight = size.height
+                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = blendStartY,
+                                endY = imageHeight
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                coil3.compose.AsyncImage(
+                    model = coil3.request.ImageRequest.Builder(context)
+                        .data(albumArtUri)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        // Text on the blurred bottom part
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
-                    )
-                )
-                .padding(10.dp)
+                .padding(8.dp)
         ) {
             Text(
                 text = title,
@@ -449,6 +547,7 @@ private fun LandscapeCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val cardShape = RoundedCornerShape(14.dp)
     Box(
         modifier = modifier
@@ -460,36 +559,78 @@ private fun LandscapeCard(
                 onClick = onClick
             )
     ) {
-        // Background gradient placeholder
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(color, color.copy(alpha = 0.6f))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = CoralXIcons.Music,
+        // ═══ Spiral 2.0-style album art blur-blend ═══
+        // Layer 1 (bottom): BLURRED album art — pre-computed via Coil
+        if (albumArtUri != null) {
+            val blurredRequest = remember(albumArtUri) {
+                coil3.request.ImageRequest.Builder(context)
+                    .data(albumArtUri)
+                    .transformations(com.rajatxo.coral.util.BlurTransformation(36.dp))
+                    .build()
+            }
+            coil3.compose.AsyncImage(
+                model = blurredRequest,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(56.dp)
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
 
-        // Text overlay
+        // Layer 2 (top): SHARP album art — top 75%, DstIn blend at bottom
+        if (albumArtUri != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.75f)
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val blendHeightPx = 30.dp.toPx()
+                        val imageHeight = size.height
+                        val blendStartY = (imageHeight - blendHeightPx).coerceAtLeast(0f)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = blendStartY,
+                                endY = imageHeight
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                coil3.compose.AsyncImage(
+                    model = coil3.request.ImageRequest.Builder(context)
+                        .data(albumArtUri)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        // Text on the blurred bottom part
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
-                    )
-                )
-                .padding(12.dp)
+                .padding(10.dp)
         ) {
             Text(
                 text = title,
@@ -502,7 +643,7 @@ private fun LandscapeCard(
             )
             Text(
                 text = artist,
-                color = Color.White.copy(alpha = 0.6f),
+                color = Color.White.copy(alpha = 0.7f),
                 fontSize = 13.sp,
                 fontFamily = CalSansFamily,
                 maxLines = 1,

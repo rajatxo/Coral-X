@@ -6,18 +6,30 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.rajatxo.coral.playback.PlaybackConnection
 import com.rajatxo.coral.theme.CoralXTheme
 import com.rajatxo.coral.ui.foundation.CoralXScaffold
+import com.rajatxo.coral.ui.player.FullPlayer
+import com.rajatxo.coral.ui.player.MiniPlayer
 import com.rajatxo.coral.ui.screens.PermissionScreen
 import com.rajatxo.coral.ui.screens.PlaylistsScreen
 import com.rajatxo.coral.ui.screens.QuickPicksScreen
@@ -33,10 +45,6 @@ class MainActivity : ComponentActivity() {
         setContent { CoralXTheme { CoralXRoot() } }
     }
 
-    /**
-     * Check if the mandatory permissions (notifications + music) are granted.
-     * Used to decide whether to show PermissionScreen or the main app.
-     */
     internal fun hasRequiredPermissions(): Boolean {
         val notif = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
@@ -57,13 +65,43 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun CoralXRoot() {
-    val context = androidx.compose.ui.platform.LocalContext.current as android.app.Activity
+    val context = LocalContext.current
     var permissionsGranted by remember {
-        mutableStateOf(
-            (context as MainActivity).hasRequiredPermissions()
-        )
+        mutableStateOf((context as MainActivity).hasRequiredPermissions())
     }
     var showSettings by remember { mutableStateOf(false) }
+    var showFullPlayer by remember { mutableStateOf(false) }
+    var customizationTitle by remember { mutableStateOf("") }
+    var showCustomization by remember { mutableStateOf(false) }
+    // ★ Cynthia customization mode — which component to customize
+    var customizationMode by remember {
+        mutableStateOf<com.rajatxo.coral.ui.cynthia.CustomizationMode?>(null)
+    }
+
+    // ★ TodaysTopCard state — hoisted OUTSIDE the scaffold (like old Coral).
+    // The card is a SIBLING of the scaffold content, so drawBackdrop samples
+    // the content behind it — no recursion, no crash.
+    var topCardSong by remember { mutableStateOf<com.rajatxo.coral.domain.model.Song?>(null) }
+    var showTopCard by remember { mutableStateOf(false) }
+    var showSpeedDialCard by remember { mutableStateOf(false) }
+
+    // ★ Capture the scaffold's glass backdrop so TodaysTopCard (rendered outside
+    //   the scaffold) can use it for drawBackdrop blur.
+    var glassBackdrop by remember {
+        mutableStateOf<com.kyant.backdrop.backdrops.LayerBackdrop?>(null)
+    }
+
+    // ★ Connect to CoralPlaybackService on launch
+    LaunchedEffect(Unit) {
+        PlaybackConnection.connect(context)
+    }
+
+    // ★ Disconnect when the composable leaves (prevents controller leaks)
+    DisposableEffect(Unit) {
+        onDispose {
+            PlaybackConnection.disconnect()
+        }
+    }
 
     if (!permissionsGranted) {
         PermissionScreen(
@@ -89,13 +127,88 @@ private fun CoralXRoot() {
             title = title,
             activeTab = activeTab,
             onTabSelected = { activeTab = it },
-            onSettingsClick = { showSettings = true }
+            onSettingsClick = { showSettings = true },
+            onNavBarLongPress = {
+                customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.NAV_BAR
+                showCustomization = true
+            },
+            onSearchLongPress = {
+                customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.SEARCH_FAB
+                showCustomization = true
+            },
+            onBackdropReady = { backdrop -> glassBackdrop = backdrop },
+            miniPlayer = {
+                // ★ Only show mini player when a song is loaded
+                val currentSong by PlaybackConnection.currentSong.collectAsState()
+                if (currentSong != null) {
+                    MiniPlayer(
+                        onExpand = { showFullPlayer = true },
+                        onDismiss = { /* Mini player dismissed — stays hidden until next song */ },
+                        onLongPress = {
+                            customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.MINI_PLAYER
+                            showCustomization = true
+                        }
+                    )
+                }
+            }
         ) {
             when (activeTab) {
-                CoralTab.QuickPicks -> QuickPicksScreen()
+                CoralTab.QuickPicks -> QuickPicksScreen(
+                    onTopCardClick = { song ->
+                        topCardSong = song
+                        showTopCard = true
+                    },
+                    onSpeedDialHeaderClick = {
+                        showSpeedDialCard = true
+                    }
+                )
                 CoralTab.Songs -> SongsScreen()
                 CoralTab.Playlists -> PlaylistsScreen()
             }
         }
+
+        // ★ Full player overlay — slides up when showFullPlayer is true
+        AnimatedVisibility(
+            visible = showFullPlayer,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            FullPlayer(
+                onDismiss = { showFullPlayer = false }
+            )
+        }
+
+        // ★ SpeedDialCard — mode switch capsule (Random / Last Played)
+        // Opens when user taps "Speed dial" text. Same position as TodaysTopCard.
+        com.rajatxo.coral.ui.components.SpeedDialCard(
+            visible = showSpeedDialCard,
+            onDismiss = { showSpeedDialCard = false },
+            backdrop = glassBackdrop
+        )
+
+        // ★ TodaysTopCard — rendered BEFORE the customization panel so the
+        // panel appears ON TOP of the card (correct z-order).
+        // Card reads from CynthiaTodaysTopCardCustomization prefs — arc dial
+        // changes apply LIVE to the card below.
+        com.rajatxo.coral.ui.components.TodaysTopCard(
+            visible = showTopCard,
+            song = topCardSong,
+            backdrop = glassBackdrop,
+            onMenuClick = {
+                customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.TOP_CARD
+                showCustomization = true
+            },
+            onDismiss = { showTopCard = false }
+        )
+
+        // ★ Cynthia Customization Panel — rendered AFTER the card so it's ON TOP.
+        // The panel floats over the card — arc dial changes apply live.
+        com.rajatxo.coral.ui.cynthia.CynthiaCustomizationPanel(
+            visible = showCustomization,
+            onDismiss = { showCustomization = false },
+            backdrop = glassBackdrop,
+            mode = customizationMode
+        )
     }
 }

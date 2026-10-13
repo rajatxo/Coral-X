@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 /**
  * ★ Coral X Theme System
@@ -148,6 +149,11 @@ fun CoralXTheme(
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !isDark
                 isAppearanceLightNavigationBars = !isDark
+                // ★ Law 10: BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                // The ONLY mode that doesn't steal gestures from the bottom edge.
+                // Without this, phones with gesture navigation (most modern phones)
+                // would have scroll-to-dismiss conflicts.
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
         }
     }

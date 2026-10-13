@@ -44,6 +44,13 @@ import com.rajatxo.coral.ui.theme.CalSansFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * ★ TodaysTopSection — 3 capsule stories with colors extracted from album art.
+ *
+ * Ported from old Coral. Reads from PlaybackHistory.dailyPlays to show the
+ * 6 most-played songs today. Each capsule's border color is extracted from
+ * the album art of the songs inside it.
+ */
 @Composable
 fun TodaysTopSection(
     modifier: Modifier = Modifier,
@@ -51,56 +58,111 @@ fun TodaysTopSection(
     onCapsuleClick: (Song) -> Unit = {}
 ) {
     val dailyPlays by PlaybackHistory.dailyPlays.collectAsState()
+
     val topSongs: List<Song> = remember(dailyPlays, songs) {
-        dailyPlays.take(6).mapNotNull { entry -> songs.find { it.id == entry.songId } }
+        dailyPlays.take(6).mapNotNull { entry ->
+            songs.find { it.id == entry.songId }
+        }
     }
+
     val placeholderColors = listOf(
         Color(0xFFFF6B6B), Color(0xFFFFD166), Color(0xFF6B9EFF),
         Color(0xFFFF8FAB), Color(0xFF51CF66), Color(0xFFB197FC)
     )
+
+    // ★ Extract dominant color from each song's album art
     val context = LocalContext.current
     var slotColors by remember { mutableStateOf<List<Color>>(List(6) { Color(0xFF333333) }) }
+
     LaunchedEffect(topSongs) {
         val colors = withContext(Dispatchers.IO) {
             val result = mutableListOf<Color>()
             for (i in 0 until 6) {
                 val song = topSongs.getOrNull(i)
                 val artUri = song?.albumArtUri
-                if (artUri != null) { result.add(extractDominantColor(context, artUri)) }
-                else { result.add(getVibrantFallbackColor(i)) }
+                if (artUri != null) {
+                    val color = extractDominantColor(context, artUri)
+                    result.add(color)
+                } else {
+                    result.add(getVibrantFallbackColor(i))
+                }
             }
             result
         }
         slotColors = colors
     }
+
     Column(modifier = modifier.fillMaxWidth()) {
+        // Header
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "Today's Top", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, fontFamily = CalSansFamily)
-            Icon(imageVector = CoralXIcons.ChevronRight, contentDescription = null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
+            Text(
+                text = "Today's Top",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = CalSansFamily
+            )
+            Icon(
+                imageVector = CoralXIcons.ChevronRight,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp)
+            )
         }
+
         Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+        // 3 capsules
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             for (i in 0 until 3) {
                 val song1 = topSongs.getOrNull(i * 2)
                 val song2 = topSongs.getOrNull(i * 2 + 1)
+
+                // ★ Border colors from album art (or fallback)
                 val color1 = slotColors.getOrNull(i * 2) ?: placeholderColors[i * 2]
                 val color2 = slotColors.getOrNull(i * 2 + 1) ?: placeholderColors[i * 2 + 1]
+
                 val capsuleShape = RoundedCornerShape(28.dp)
+                val borderBrush = Brush.horizontalGradient(listOf(color1, color2))
+                val bgBrush = Brush.horizontalGradient(
+                    listOf(color1.copy(alpha = 0.25f), color2.copy(alpha = 0.25f))
+                )
                 Box(
-                    modifier = Modifier.weight(1f).height(56.dp).clip(capsuleShape)
-                        .background(Brush.horizontalGradient(listOf(color1.copy(alpha = 0.25f), color2.copy(alpha = 0.25f))))
-                        .border(2.5.dp, Brush.horizontalGradient(listOf(color1, color2)), capsuleShape)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp)
+                        .clip(capsuleShape)
+                        .background(bgBrush)
+                        .border(2.5.dp, borderBrush, capsuleShape)
                         .padding(6.dp)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { (song1 ?: song2)?.let { onCapsuleClick(it) } },
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                (song1 ?: song2)?.let { onCapsuleClick(it) }
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AlbumArtCircle(artUri = song1?.albumArtUri, placeholderColor = color1)
-                        AlbumArtCircle(artUri = song2?.albumArtUri, placeholderColor = color2)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AlbumArtCircle(
+                            artUri = song1?.albumArtUri,
+                            placeholderColor = color1
+                        )
+                        AlbumArtCircle(
+                            artUri = song2?.albumArtUri,
+                            placeholderColor = color2
+                        )
                     }
                 }
             }
@@ -109,29 +171,79 @@ fun TodaysTopSection(
 }
 
 @Composable
-private fun AlbumArtCircle(artUri: Uri?, placeholderColor: Color) {
+private fun AlbumArtCircle(
+    artUri: Uri?,
+    placeholderColor: Color
+) {
     val context = LocalContext.current
-    Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(placeholderColor.copy(alpha = 0.7f)).border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape), contentAlignment = Alignment.Center) {
-        if (artUri != null) { AsyncImage(model = ImageRequest.Builder(context).data(artUri).build(), contentDescription = null, modifier = Modifier.fillMaxWidth()) }
-        else { Text(text = "+", color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(placeholderColor.copy(alpha = 0.7f))
+            .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (artUri != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(artUri)
+                    .build(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            Text(
+                text = "+",
+                color = Color.White.copy(alpha = 0.8f),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 
+/**
+ * Extract dominant color from album art — takes center pixel, boosts saturation.
+ * Same approach as old Coral.
+ */
 private fun extractDominantColor(context: android.content.Context, uri: Uri): Color {
     return try {
         val inputStream = context.contentResolver.openInputStream(uri) ?: return getVibrantFallbackColor(0)
         val bitmap = BitmapFactory.decodeStream(inputStream) ?: return getVibrantFallbackColor(0)
         inputStream.close()
-        val pixel = bitmap.getPixel(bitmap.width / 2, bitmap.height / 2)
+
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixel = bitmap.getPixel(w / 2, h / 2)
+        val r = android.graphics.Color.red(pixel) / 255f
+        val g = android.graphics.Color.green(pixel) / 255f
+        val b = android.graphics.Color.blue(pixel) / 255f
+
         val hsv = FloatArray(3)
-        android.graphics.Color.RGBToHSV(android.graphics.Color.red(pixel), android.graphics.Color.green(pixel), android.graphics.Color.blue(pixel), hsv)
+        android.graphics.Color.RGBToHSV(
+            (r * 255).toInt(), (g * 255).toInt(), (b * 255).toInt(), hsv
+        )
         hsv[1] = (hsv[1] * 1.3f).coerceAtMost(1f)
         val boosted = android.graphics.Color.HSVToColor(hsv)
-        Color(android.graphics.Color.red(boosted) / 255f, android.graphics.Color.green(boosted) / 255f, android.graphics.Color.blue(boosted) / 255f)
-    } catch (_: Exception) { getVibrantFallbackColor(0) }
+        Color(
+            red = android.graphics.Color.red(boosted) / 255f,
+            green = android.graphics.Color.green(boosted) / 255f,
+            blue = android.graphics.Color.blue(boosted) / 255f
+        )
+    } catch (_: Exception) {
+        getVibrantFallbackColor(0)
+    }
 }
 
 private fun getVibrantFallbackColor(index: Int): Color {
-    val c = listOf(Color(0xFFFF6B6B), Color(0xFFFFD166), Color(0xFF6B9EFF), Color(0xFFFF8FAB), Color(0xFF51CF66), Color(0xFFB197FC))
-    return c[index % c.size]
+    val vibrantColors = listOf(
+        Color(0xFFFF6B6B),
+        Color(0xFFFFD166),
+        Color(0xFF6B9EFF),
+        Color(0xFFFF8FAB),
+        Color(0xFF51CF66),
+        Color(0xFFB197FC)
+    )
+    return vibrantColors[index % vibrantColors.size]
 }
