@@ -126,6 +126,14 @@ private fun CoralXRoot() {
             activeTab = activeTab,
             onTabSelected = { activeTab = it },
             onSettingsClick = { showSettings = true },
+            onNavBarLongPress = {
+                customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.NAV_BAR
+                showCustomization = true
+            },
+            onSearchLongPress = {
+                customizationMode = com.rajatxo.coral.ui.cynthia.CustomizationMode.SEARCH_FAB
+                showCustomization = true
+            },
             onBackdropReady = { backdrop -> glassBackdrop = backdrop },
             miniPlayer = {
                 MiniPlayer(

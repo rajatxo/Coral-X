@@ -63,6 +63,8 @@ fun CoralXScaffold(
     onProfileClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onNavBarLongPress: () -> Unit = {},
+    onSearchLongPress: () -> Unit = {},
     miniPlayer: @Composable (() -> Unit) = {},
     onBackdropReady: (com.kyant.backdrop.backdrops.LayerBackdrop) -> Unit = {},
     content: @Composable () -> Unit
@@ -258,42 +260,52 @@ fun CoralXScaffold(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CoralXTabCapsule(
-                    tabs = CoralTab.entries.toList(),
-                    activeTab = activeTab,
-                    onTabSelected = onTabSelected,
-                    backdrop = glassBackdrop
-                )
-                Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
-                val fabShape = CircleShape
-                Box(
-                    modifier = Modifier
-                        .size(Dimensions.SearchFabSize)
-                        .clip(fabShape)
-                        .drawBackdrop(
-                            backdrop = glassBackdrop,
-                            shape = { fabShape },
-                            effects = {
-                                vibrancy()
-                                colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
-                                blur(18f.dp.toPx())
-                            },
-                            onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
-                        )
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onSearchClick
-                        ),
-                    contentAlignment = Alignment.Center
+                // ★ Nav bar capsule — wrapped with CountdownLongPress (3-2-1 bubble)
+                com.rajatxo.coral.ui.components.CountdownLongPress(
+                    onLongPressComplete = onNavBarLongPress
                 ) {
+                    CoralXTabCapsule(
+                        tabs = CoralTab.entries.toList(),
+                        activeTab = activeTab,
+                        onTabSelected = onTabSelected,
+                        backdrop = glassBackdrop
+                    )
+                }
+                Spacer(modifier = Modifier.width(Dimensions.NavSearchGap))
+                // ★ Search FAB — wrapped with CountdownLongPress (3-2-1 bubble)
+                com.rajatxo.coral.ui.components.CountdownLongPress(
+                    onLongPressComplete = onSearchLongPress
+                ) {
+                    val fabShape = CircleShape
+                    Box(
+                        modifier = Modifier
+                            .size(Dimensions.SearchFabSize)
+                            .clip(fabShape)
+                            .drawBackdrop(
+                                backdrop = glassBackdrop,
+                                shape = { fabShape },
+                                effects = {
+                                    vibrancy()
+                                    colorControls(brightness = 0.05f, contrast = 1f, saturation = 1.5f)
+                                    blur(18f.dp.toPx())
+                                },
+                                onDrawSurface = { drawRect(Color.Black.copy(alpha = 0.35f)) }
+                            )
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), fabShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onSearchClick
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
                     Icon(
                         imageVector = CoralXIcons.Search,
                         contentDescription = "Search",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
+                    }
                 }
             }
         }
