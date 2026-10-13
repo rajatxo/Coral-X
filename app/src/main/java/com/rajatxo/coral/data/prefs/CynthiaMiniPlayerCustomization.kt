@@ -29,8 +29,8 @@ object CynthiaMiniPlayerCustomization {
 
     // ★ Default position — centered at the bottom (offset 0,0 from the
     //   bottom-center alignment that the caller uses).
-    const val DEFAULT_OFFSET_X = 17f
-    const val DEFAULT_OFFSET_Y = 126f
+    const val DEFAULT_OFFSET_X = 0f
+    const val DEFAULT_OFFSET_Y = 0f
 
     private lateinit var prefs: android.content.SharedPreferences
 
