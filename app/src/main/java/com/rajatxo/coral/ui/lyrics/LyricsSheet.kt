@@ -41,10 +41,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -516,16 +518,13 @@ fun LyricsSheet(
                     }
                 }
                 lyric != null -> {
-                    // ★ Use our own SweptLyricsContent for word-synced lyrics.
-                    //   BitChord-inspired approach: two stacked Text layers (dim base
-                    //   + bright clipped to sung portion) with a horizontal sweep
-                    //   clip. No accompanist library — too fragile (crashes on
-                    //   overlapping timelines, empty syllables, multi-agent edge
-                    //   cases). Our renderer is simple + robust.
+                    // ★ Use accompanist KaraokeLyricsView — same approach as Lyricify.
+                    //   AutoParser parses raw lyrics text → SyncedLyrics → KaraokeLyricsView renders.
+                    //   No custom rendering, no sanitizers, no preprocessors.
                     //   Falls back to CinematicLyricsContent for unsynced plain text.
-                    if (lyric!!.synced) {
-                        SweptLyricsContent(
-                            lyric = lyric!!,
+                    if (lyric!!.synced && lyric!!.rawText != null) {
+                        AccompanistLyricsContent(
+                            rawText = lyric!!.rawText!!,
                             currentPositionMs = currentPositionMs,
                             isPlaying = isPlaying,
                             fontSizeSp = lyricsFontSize,
@@ -802,741 +801,115 @@ fun LyricsSheet(
     }
 }
 
-// ═══ Swept lyrics content (BitChord-inspired, NO accompanist library) ═══
+// ═══ Accompanist lyrics content (Lyricify approach) ═══
 
 /**
- * ★ SweptLyricsContent — our own word-by-word karaoke renderer.
+ * ★ AccompanistLyricsContent — renders lyrics using accompanist's KaraokeLyricsView.
  *
- * Inspired by BitChord's SweptLyricLine approach:
- *   - Frame clock via withFrameNanos — interpolates between player readings
- *     (every ~500ms) so the sweep updates at 60fps. Without this, the sweep
- *     "jumps" every 500ms → not smooth.
- *   - Two stacked Text layers per line:
- *     1. Dim base (white at low alpha) — full line
- *     2. Bright overlay (full white) — clipped to sung portion via horizontalGradient
- *   - animatesFromMs / animatesUntilMs — each line has a time window when it's
- *     actively animating. Outside that window, it's drawn statically (fully dim
- *     or fully bright). Only the active line shows the moving sweep.
- *   - NO accompanist library — pure Compose, can't crash.
- *   - Uses our existing Lyric model (LyricLine.words: List<WordTimestamp>)
+ * This is the EXACT same approach Lyricify uses:
+ *   1. AutoParser.Builder().build().parse(rawText) → SyncedLyrics
+ *   2. withFrameNanos loop for smooth position interpolation
+ *   3. KaraokeLyricsView renders everything (word sync, multi-person, etc.)
  *
- * Line-synced lyrics (no word sync): NO sweep animation — just highlight the
- * active line + dim others. The sweep is for word-synced lyrics only.
- */
-@Composable
-private fun SweptLyricsContent(
-    lyric: Lyric,
-    currentPositionMs: Long,
-    isPlaying: Boolean,
-    fontSizeSp: Float = 26f,
-    onSeek: (Long) -> Unit
-) {
-    if (!lyric.synced || lyric.lines.isEmpty()) {
-        CinematicLyricsContent(lyric, currentPositionMs, onSeek)
-        return
-    }
-
-    // ★ Active line index — binary search for the current line
-    val activeIndex = remember(lyric.lines, currentPositionMs) {
-        findActiveLineIndex(lyric.lines, currentPositionMs)
-    }
-
-    // ★ Frame clock — interpolates between player readings so the sweep
-    //   updates at 60fps. The player reports position every ~500ms; without
-    //   interpolation, the sweep "jumps" every 500ms → not smooth.
-    //   Keyed on lyric so the clock resets when the song changes.
-    //   ★ PAUSE FIX: when !isPlaying, the clock returns the last reported
-    //     position WITHOUT advancing. This prevents the sweep from animating
-    //     when the song is paused (the bug where opening the lyrics page
-    //     while paused starts the animation).
-    val clockMs = rememberFrameClock(lyric, currentPositionMs, isPlaying)
-
-    val listState = rememberLazyListState()
-
-    // Auto-scroll: active line at ~1/3 from top
-    LaunchedEffect(activeIndex) {
-        if (activeIndex >= 0 && activeIndex < lyric.lines.size) {
-            val target = (activeIndex - 3).coerceAtLeast(0)
-            listState.animateScrollToItem(target)
-        }
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(lyric.lines.size) { index ->
-            val line = lyric.lines[index]
-            val distance = kotlin.math.abs(index - activeIndex)
-            val isActive = index == activeIndex
-            // ★ isBefore: this line has already been sung (index < active).
-            //   Used to show fully bright (no sweep) for past lines.
-            val isBefore = index < activeIndex
-            SweptLyricLine(
-                line = line,
-                clockMs = clockMs,
-                isActive = isActive,
-                distanceFromActive = distance,
-                isBefore = isBefore,
-                fontSizeSp = fontSizeSp,
-                onSeek = onSeek
-            )
-        }
-    }
-}
-
-/**
- * ★ Frame clock — interpolates between player readings so the sweep updates
- *   at 60fps (buttery smooth). The player reports position every ~500ms;
- *   without interpolation, the sweep "jumps" every 500ms.
- *
- * Returns a State<Long> that updates every frame (~16ms) with the interpolated
- * playback position. Read inside draw lambdas so only the draw phase re-runs
- * each frame (not composition).
- *
- * ★ PAUSE HANDLING: when [isPlaying] is false, the clock does NOT advance —
- *   it returns the last reported position. This prevents the sweep from
- *   animating when the song is paused (the bug where opening the lyrics page
- *   while paused starts the animation because the clock keeps running).
- *
- * Inspired by BitChord's LyricClock approach (steered interpolation), but
- * simplified to linear interpolation. Good enough for smoothness.
- */
-@Composable
-private fun rememberFrameClock(
-    lyric: Lyric,
-    currentPositionMs: Long,
-    isPlaying: Boolean
-): androidx.compose.runtime.State<Long> {
-    // ★ Anchor: the last reported position + when it was reported.
-    //   Stored in mutableStateOf so the produceState block can read the
-    //   latest value.
-    val anchor = remember(lyric) {
-        mutableStateOf(currentPositionMs to System.nanoTime())
-    }
-    // Update the anchor when a new reading arrives
-    if (currentPositionMs != anchor.value.first) {
-        anchor.value = currentPositionMs to System.nanoTime()
-    }
-
-    // ★ When paused: return the last reported position WITHOUT advancing.
-    //   The produceState loop simply doesn't run — the state stays at the
-    //   last value. This is the key fix for "animation starts when paused".
-    return androidx.compose.runtime.produceState(
-        initialValue = currentPositionMs,
-        lyric, isPlaying
-    ) {
-        if (!isPlaying) {
-            // Paused — just hold the current position, don't advance
-            value = currentPositionMs
-            return@produceState
-        }
-        // Playing — advance the clock every frame
-        while (true) {
-            withFrameNanos { _ ->
-                val (reportedMs, reportedAtNanos) = anchor.value
-                val nowNanos = System.nanoTime()
-                val elapsedMs = (nowNanos - reportedAtNanos) / 1_000_000.0
-                value = reportedMs + elapsedMs.toLong()
-            }
-        }
-    }
-}
-
-/**
- * A single lyric line with the sung part lit, the rest dimmed, and the boundary
- * travelling across the words in time with the vocal.
- *
- * Two copies of the same text stacked:
- *   1. Dim base (white at alpha based on distance from active line)
- *   2. Bright overlay (full white) clipped to sung portion via horizontalGradient
- *
- * ★ Phase-based drawing (BitChord approach):
- *   - BEFORE (clock < line start): all dim, no sweep → static, no redraw
- *   - MOVING (line start <= clock <= line end): sweep active → redraws per frame
- *   - AFTER (clock > line end): all bright, no sweep → static, no redraw
- *   Only MOVING phase reads the clock → only the active line redraws per frame.
- *
- * ★ Line-synced lyrics (no word sync): NO sweep animation. Just highlight the
- *   active line + dim others. The sweep is for word-synced lyrics only —
- *   applying a fake sweep to line-synced lyrics looks wrong because the sweep
- *   doesn't match the actual word boundaries.
- */
-@Composable
-private fun SweptLyricLine(
-    line: LyricLine,
-    clockMs: androidx.compose.runtime.State<Long>,
-    isActive: Boolean,
-    distanceFromActive: Int,
-    isBefore: Boolean,
-    fontSizeSp: Float = 26f,
-    onSeek: (Long) -> Unit
-) {
-    val targetAlpha = when {
-        isActive -> 1f
-        distanceFromActive == 1 -> 0.5f
-        distanceFromActive == 2 -> 0.3f
-        distanceFromActive == 3 -> 0.18f
-        else -> 0.1f
-    }
-    val animatedAlpha by animateFloatAsState(
-        targetValue = targetAlpha,
-        animationSpec = tween(if (isActive) 330 else 500),
-        label = "lineAlpha"
-    )
-    val targetScale = if (isActive) 1f else 0.96f
-    val animatedScale by animateFloatAsState(
-        targetValue = targetScale,
-        animationSpec = tween(166),
-        label = "lineScale"
-    )
-
-    val fontSize = fontSizeSp.sp
-    val fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold
-    val hasWordSync = line.hasWordSync && line.words != null && line.words.isNotEmpty()
-    val text = line.text.ifBlank { "♪" }
-    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-
-    val showBright = hasWordSync || isActive || isBefore
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                alpha = animatedAlpha
-                scaleX = animatedScale
-                scaleY = animatedScale
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { if (line.timeMs >= 0) onSeek(line.timeMs) }
-    ) {
-        // Dim base layer
-        Text(
-            text = text,
-            color = Color.White.copy(alpha = 0.35f),
-            fontSize = fontSize,
-            fontFamily = CalSansFamily,
-            fontWeight = fontWeight,
-            lineHeight = (fontSize.value * 1.3f).sp,
-            textAlign = TextAlign.Center,
-            maxLines = 3,
-            overflow = TextOverflow.Visible,
-            onTextLayout = { layoutResult = it },
-            modifier = Modifier.fillMaxWidth()
-        )
-        // Bright overlay — swept by gradient, clipped per visual row
-        if (showBright) {
-            Text(
-                text = text,
-                color = Color.White,
-                fontSize = fontSize,
-                fontFamily = CalSansFamily,
-                fontWeight = fontWeight,
-                lineHeight = (fontSize.value * 1.3f).sp,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Visible,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        // ★ Read clock in DRAW phase — 60fps, no recomposition
-                        if (!hasWordSync) {
-                            // Line-synced: just draw full bright
-                            drawContent()
-                            return@drawWithContent
-                        }
-
-                        val currentPos = if (isActive) clockMs.value else 0L
-                        val sungFraction = when {
-                            isActive -> computeSungFraction(line, currentPos)
-                            isBefore -> 1f
-                            else -> 0f
-                        }
-
-                        if (sungFraction <= 0f) return@drawWithContent
-                        if (sungFraction >= 1f) { drawContent(); return@drawWithContent }
-
-                        // ★ SMOOTH GRADIENT SWEEP — per visual row.
-                        //   For each visual row (handles wrapping), compute the
-                        //   horizontal gradient that fades from opaque (sung)
-                        //   to transparent (unsung). This creates the smooth
-                        //   glow transition the user wants.
-                        //
-                        //   The gradient is per-row so row 1 fills before row 2
-                        //   starts (fixes the multi-line issue).
-                        //
-                        //   featherWidth controls the soft edge — wider = smoother.
-                        val measured = layoutResult
-                        if (measured == null) {
-                            // Fallback: simple gradient across full width
-                            drawContent()
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colorStops = arrayOf(
-                                        0f to Color.Black,
-                                        sungFraction to Color.Black,
-                                        (sungFraction + 0.06f).coerceAtMost(1f) to Color.Transparent,
-                                        1f to Color.Transparent
-                                    )
-                                ),
-                                blendMode = BlendMode.DstIn
-                            )
-                            return@drawWithContent
-                        }
-
-                        // ★ Per-row gradient sweep
-                        val totalChars = text.length
-                        val sungChars = totalChars * sungFraction
-
-                        for (rowIndex in 0 until measured.lineCount) {
-                            val rowStart = measured.getLineStart(rowIndex)
-                            val rowEnd = measured.getLineEnd(rowIndex, visibleEnd = true)
-                            if (sungChars <= rowStart) continue
-
-                            val rowLeft = measured.getLineLeft(rowIndex)
-                            val rowRight = measured.getLineRight(rowIndex)
-                            val rowTop = measured.getLineTop(rowIndex)
-                            val rowBottom = measured.getLineBottom(rowIndex)
-                            val rowWidth = rowRight - rowLeft
-
-                            if (sungChars >= rowEnd) {
-                                // Full row sung — clip to entire row, draw bright
-                                clipRect(left = rowLeft, top = rowTop, right = rowRight, bottom = rowBottom) {
-                                    this@drawWithContent.drawContent()
-                                }
-                            } else {
-                                // ★ Partial row — clipRect for the sung part,
-                                //   PLUS a smooth gradient feather at the edge.
-                                //   This gives the smooth glow transition.
-                                val sungWidth = try {
-                                    val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
-                                    measured.getBoundingBox(charOffset).right - rowLeft
-                                } catch (_: Exception) {
-                                    val rowFraction = (sungChars - rowStart) /
-                                        (rowEnd - rowStart).coerceAtLeast(1)
-                                    rowWidth * rowFraction
-                                }
-                                val cutRight = (rowLeft + sungWidth).coerceAtMost(rowRight)
-                                // Feather width — 12% of row width, capped at 80px
-                                val featherWidth = (rowWidth * 0.12f).coerceAtMost(80f)
-                                val featherStart = (cutRight - featherWidth).coerceAtLeast(rowLeft)
-
-                                // Part 1: fully sung area (hard clip)
-                                clipRect(left = rowLeft, top = rowTop, right = featherStart, bottom = rowBottom) {
-                                    this@drawWithContent.drawContent()
-                                }
-                                // Part 2: feather zone (smooth gradient)
-                                clipRect(left = featherStart, top = rowTop, right = rowRight, bottom = rowBottom) {
-                                    this@drawWithContent.drawContent()
-                                    drawRect(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(Color.Black, Color.Transparent),
-                                            startX = featherStart,
-                                            endX = cutRight
-                                        ),
-                                        topLeft = androidx.compose.ui.geometry.Offset(featherStart, rowTop),
-                                        size = androidx.compose.ui.geometry.Size(
-                                            cutRight - featherStart,
-                                            rowBottom - rowTop
-                                        ),
-                                        blendMode = BlendMode.DstIn
-                                    )
-                                }
-                            }
-                        }
-                    }
-            )
-        }
-    }
-}
-
-/**
- * A single word — unused now, kept for reference.
- */
-@Composable
-private fun SweptWord(
-    text: String,
-    word: WordTimestamp,
-    clockMs: androidx.compose.runtime.State<Long>,
-    isActive: Boolean,
-    isBefore: Boolean,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-    fontWeight: FontWeight
-) {
-    Box {
-        Text(
-            text = text,
-            color = Color.White.copy(alpha = 0.35f),
-            fontSize = fontSize,
-            fontFamily = CalSansFamily,
-            fontWeight = fontWeight
-        )
-        if (isBefore) {
-            Text(
-                text = text,
-                color = Color.White,
-                fontSize = fontSize,
-                fontFamily = CalSansFamily,
-                fontWeight = fontWeight
-            )
-        } else if (isActive) {
-            Text(
-                text = text,
-                color = Color.White,
-                fontSize = fontSize,
-                fontFamily = CalSansFamily,
-                fontWeight = fontWeight,
-                modifier = Modifier
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        val pos = clockMs.value
-                        val progress = when {
-                            pos >= word.endTime -> 1f
-                            pos <= word.startTime -> 0f
-                            else -> ((pos - word.startTime).toFloat() /
-                                (word.endTime - word.startTime).coerceAtLeast(1L)).coerceIn(0f, 1f)
-                        }
-                        if (progress >= 1f) {
-                            drawContent()
-                        } else if (progress > 0f) {
-                            clipRect(right = size.width * progress) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                    }
-            )
-        }
-    }
-}
-
-/**
- * Compute the fraction (0..1) of characters sung at [positionMs] for a line
- * with word sync. Each word contributes its character count, and we sum how
- * many characters are sung across all words.
- *
- * For a word: 0 before start, 1 after end, linear in between.
- */
-private fun computeSungFraction(line: LyricLine, positionMs: Long): Float {
-    val words = line.words ?: return 0f
-    if (words.isEmpty()) return 0f
-
-    var totalChars = 0
-    var sungChars = 0f
-
-    words.forEach { word ->
-        val wordLen = word.text.length.coerceAtLeast(1)
-        totalChars += wordLen
-        when {
-            positionMs >= word.endTime -> sungChars += wordLen
-            positionMs <= word.startTime -> sungChars += 0f
-            else -> {
-                val span = (word.endTime - word.startTime).coerceAtLeast(1L)
-                val frac = (positionMs - word.startTime).toFloat() / span
-                sungChars += wordLen * frac
-            }
-        }
-    }
-
-    return if (totalChars == 0) 0f else (sungChars / totalChars).coerceIn(0f, 1f)
-}
-
-// ═══ Accompanist lyrics content (word-synced karaoke via accompanist-lyrics-ui) ═══
-
-/**
- * ★ AccompanistLyricsContent — renders word-synced lyrics using accompanist's
- *   KaraokeLyricsView. Uses accompanist's AutoParser to parse the raw lyrics
- *   text (TTML, Enhanced LRC, YRC, KRC, Lyricify Syllable) directly into a
- *   SyncedLyrics model — bypassing our LrcParser entirely. This preserves
- *   multi-person / duet structure, word-level timing, and accompaniment lines
- *   that our LrcParser flattens.
- *
- * AutoParser chain (from accompanist-lyrics-core):
- *   TTMLParser → LyricifySyllableParser → EnhancedLrcParser → KugouKrcParser → NeteaseYrcParser
- *
- * ★ CRASH FIX: After parsing, we sanitize the SyncedLyrics to ensure all
- *   syllable and line end times are >= their start times. Real-world lyrics
- *   (especially Enhanced LRC with multi-person `v1:` prefixes) often have
- *   overlapping timelines — a word's end timestamp may exceed the next line's
- *   start. accompanist's KaraokeSyllable has `init { require(end >= start) }`
- *   which throws on these cases. The sanitizer clamps all ends to be >= starts.
- *
- * Falls back to our CinematicLyricsContent if:
- *   - rawText is null (Lyric was created without preserving source text)
- *   - AutoParser returns empty SyncedLyrics
- *   - AutoParser or sanitizer throws
- *
- * ★ Auto-scroll fix: accompanist's derivedStateOf reads currentPosition via
- *   the lambda we pass. The lambda must read from a Compose State (not a plain
- *   parameter) for derivedStateOf to track it. We wrap currentPositionMs in
- *   rememberUpdatedState so the lambda reads from the State.
+ * NO custom rendering. NO sanitizers. NO preprocessors.
+ * Trust the library — it works in Lyricify, it works in BitChord, it works
+ * in ArchiveTune. The crashes we had before were from OUR data conversion
+ * being wrong, not the library being broken.
  */
 @Composable
 private fun AccompanistLyricsContent(
-    lyric: Lyric,
+    rawText: String,
     currentPositionMs: Long,
+    isPlaying: Boolean,
+    fontSizeSp: Float,
     onSeek: (Long) -> Unit
 ) {
-    val rawText = lyric.rawText
-
-    if (rawText.isNullOrBlank()) {
-        // No raw text to parse with AutoParser — fall back to cinematic renderer
-        CinematicLyricsContent(lyric, currentPositionMs, onSeek)
-        return
-    }
-
-    // ★ Pre-process the raw text to fix common format issues that crash AutoParser:
-    //   1. Enhanced LRC with trailing end timestamps: `<00:05.27>you<00:06.00>`
-    //      The trailing `<00:06.00>` has no text after it → AutoParser creates
-    //      an empty syllable → KaraokeSyllable init throws or rendering crashes.
-    //      Fix: strip trailing `<timestamp>` at end of each line if no text follows.
-    //   2. Enhanced LRC with `v1:` / `v2:` voice prefix before word timestamps.
-    //      AutoParser's EnhancedLrcParser handles this, but sometimes the prefix
-    //      causes empty syllable creation. The preprocessor ensures clean format.
-    val cleanedText = preprocessLyricsText(rawText)
-
-    // ★ Use accompanist's AutoParser to parse the cleaned text directly.
-    //   Then sanitize to fix overlapping timelines that crash KaraokeLyricsView.
+    // ★ Step 1: Parse raw lyrics using AutoParser.Builder().build()
+    //   Same as Lyricify: AutoParser.Builder().build().parse(rawText)
     val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
-        remember(cleanedText) {
+        remember(rawText) {
             try {
-                val parsed = com.mocharealm.accompanist.lyrics.core.parser.AutoParser().parse(cleanedText)
-                sanitizeSyncedLyrics(parsed)
+                com.mocharealm.accompanist.lyrics.core.parser.AutoParser.Builder().build()
+                    .parse(rawText)
             } catch (_: Exception) {
-                // AutoParser or sanitizer failed — return empty, will fall back below
                 com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(emptyList())
             }
         }
 
     if (syncedLyrics.lines.isEmpty()) {
-        // AutoParser couldn't parse the format — fall back to cinematic
-        CinematicLyricsContent(lyric, currentPositionMs, onSeek)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = CoralXIcons.Music,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.5f),
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Could not parse lyrics",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
         return
     }
 
-    // ★ Wrap currentPositionMs in a Compose State so accompanist's derivedStateOf
-    //   tracks changes. Without this, the lambda { currentPositionMs.toInt() }
-    //   captures the value at first composition and never updates.
-    val positionState = androidx.compose.runtime.rememberUpdatedState(currentPositionMs.toInt())
+    // ★ Step 2: Smooth position interpolation — same as Lyricify.
+    //   withFrameNanos loop advances position when playing.
+    //   When paused, position stays at the last reported value.
+    var animatedPosition by remember { mutableLongStateOf(currentPositionMs) }
+    val latestPosition by rememberUpdatedState(currentPositionMs)
+    val latestPlaying by rememberUpdatedState(isPlaying)
+    var lastUpdateTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(currentPositionMs) {
+        lastUpdateTime = System.currentTimeMillis()
+    }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                val elapsed = System.currentTimeMillis() - lastUpdateTime
+                animatedPosition = latestPosition + elapsed
+                withFrameNanos {}
+            }
+        } else {
+            animatedPosition = latestPosition
+        }
+    }
+
+    // ★ Step 3: Render with KaraokeLyricsView — same as Lyricify.
+    val listState = rememberLazyListState()
 
     com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView(
         listState = listState,
         lyrics = syncedLyrics,
-        currentPosition = { positionState.value },
+        currentPosition = { animatedPosition.toInt() },
         onLineClicked = { line -> onSeek(line.start.toLong()) },
-        onLinePressed = { /* no-op for now */ },
-        modifier = Modifier.fillMaxSize(),
+        onLinePressed = { },
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
         textColor = Color.White,
-        normalLineTextStyle = androidx.compose.ui.text.TextStyle(
-            fontSize = 22.sp,
+        normalLineTextStyle = TextStyle(
+            fontSize = fontSizeSp.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = CalSansFamily
         ),
-        accompanimentLineTextStyle = androidx.compose.ui.text.TextStyle(
-            fontSize = 16.sp,
+        accompanimentLineTextStyle = TextStyle(
+            fontSize = (fontSizeSp * 0.7f).sp,
             fontWeight = FontWeight.SemiBold,
             fontFamily = CalSansFamily
         ),
-        offset = 80.dp,
-        useBlurEffect = false  // blur is expensive on low-end devices
-    )
-}
-
-/**
- * ★ Pre-process raw lyrics text to fix format issues that crash AutoParser.
- *
- * FIX 1: Enhanced LRC trailing end timestamps
- *   Format: `[00:03.35]<00:03.35>Last <00:03.80>night, ... <00:05.27>you<00:06.00>`
- *   The trailing `<00:06.00>` is an END timestamp with no text after it.
- *   AutoParser creates an empty syllable from this → crash.
- *   Fix: strip trailing `<timestamp>` at end of each line if no text follows.
- *
- * FIX 2: Ensure spaces between Enhanced LRC word timestamps
- *   Format: `<00:03.35>Last<00:03.80>night` (no space between word and next timestamp)
- *   → accompanist concatenates words without spaces → large visual gap or no gap.
- *   Fix: add a space between a word's last char and the next `<timestamp>`.
- */
-private fun preprocessLyricsText(rawText: String): String {
-    return rawText.lines().joinToString("\n") { line ->
-        var cleaned = line.trimEnd()
-
-        // Skip non-LRC lines (plain text, TTML, etc.) — TTML doesn't have [
-        if (!cleaned.contains("[") || !cleaned.contains("<")) {
-            return@joinToString cleaned
-        }
-
-        // FIX 1: Strip trailing `<timestamp>` at end of line with no text after it.
-        while (true) {
-            val lastAngleClose = cleaned.lastIndexOf('>')
-            if (lastAngleClose < 0) break
-            val afterClose = cleaned.substring(lastAngleClose + 1).trim()
-            if (afterClose.isNotEmpty()) break  // There IS text after the last >
-            val lastAngleOpen = cleaned.lastIndexOf('<', lastAngleClose)
-            if (lastAngleOpen < 0) break
-            val inner = cleaned.substring(lastAngleOpen + 1, lastAngleClose)
-            if (!inner.matches(Regex("""\d{1,2}[:.]\d{2}(?:[.:]\d{1,3})?"""))) break
-            cleaned = cleaned.substring(0, lastAngleOpen).trimEnd()
-        }
-
-        // FIX 2: Ensure a space between a word's last character and the next
-        // `<timestamp>` tag. Pattern: `word<00:03.80>` → `word <00:03.80>`.
-        // Only matches when `<` is followed by a digit (timestamp start), not XML.
-        cleaned = cleaned.replace(Regex("(\\S)<(\\d)"), "$1 <$2")
-
-        cleaned
-    }
-}
-
-/**
- * ★ Sanitize a SyncedLyrics to prevent crashes in KaraokeLyricsView.
- *
- * Real-world lyrics (especially Enhanced LRC with multi-person `v1:` prefixes)
- * often have overlapping timelines:
- *   [02:00.05] v1: ... <02:06.24>      ← last word ends at 02:06.24
- *   [02:04.97] v1: <02:04.97>There's   ← next line starts at 02:04.97
- *
- * accompanist's KaraokeSyllable and KaraokeLine both have:
- *   init { require(end >= start) }
- *
- * If a word's end gets clamped to the next line's start (which is before the
- * word's own start), require() throws and the app crashes.
- *
- * This function:
- *   1. For each syllable: clamp end to be at least start + 1ms
- *   2. For each line: clamp end to be at least start + 1ms
- *   3. Rebuilds KaraokeLine.MainKaraokeLine with sanitized values
- *
- * Inspired by ArchiveTune's clampEnhancedLrcLastWordEnds.
- */
-private fun sanitizeSyncedLyrics(
-    lyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
-): com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics {
-    val sanitizedLines = lyrics.lines.map { line ->
-        when (line) {
-            is com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine -> {
-                val safeSyllables = line.syllables.map { s ->
-                    val safeStart = s.start.coerceAtLeast(0)
-                    val safeEnd = s.end.coerceAtLeast(safeStart + 1)
-                    s.copy(start = safeStart, end = safeEnd)
-                }
-                val safeStart = line.start.coerceAtLeast(0)
-                val safeEnd = line.end.coerceAtLeast(safeStart + 1)
-                try {
-                    line.copy(syllables = safeSyllables, start = safeStart, end = safeEnd)
-                } catch (_: Exception) {
-                    // If copy still fails (e.g. accompanimentLines constraint),
-                    // rebuild from scratch with minimal safe values
-                    com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine(
-                        syllables = safeSyllables,
-                        translation = line.translation,
-                        alignment = line.alignment,
-                        start = safeStart,
-                        end = safeEnd,
-                        phonetic = line.phonetic,
-                        accompanimentLines = null  // drop accompaniment lines if they cause issues
-                    )
-                }
-            }
-            is com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.AccompanimentKaraokeLine -> {
-                val safeSyllables = line.syllables.map { s ->
-                    val safeStart = s.start.coerceAtLeast(0)
-                    val safeEnd = s.end.coerceAtLeast(safeStart + 1)
-                    s.copy(start = safeStart, end = safeEnd)
-                }
-                val safeStart = line.start.coerceAtLeast(0)
-                val safeEnd = line.end.coerceAtLeast(safeStart + 1)
-                try {
-                    line.copy(syllables = safeSyllables, start = safeStart, end = safeEnd)
-                } catch (_: Exception) {
-                    com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.AccompanimentKaraokeLine(
-                        syllables = safeSyllables,
-                        translation = line.translation,
-                        alignment = line.alignment,
-                        start = safeStart,
-                        end = safeEnd,
-                        phonetic = line.phonetic
-                    )
-                }
-            }
-            is com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine -> {
-                val safeStart = line.start.coerceAtLeast(0)
-                val safeEnd = line.end.coerceAtLeast(safeStart + 1)
-                line.copy(start = safeStart, end = safeEnd)
-            }
-            else -> line  // Unknown line type — pass through as-is
-        }
-    }
-    return com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(
-        lines = sanitizedLines,
-        title = lyrics.title,
-        id = lyrics.id,
-        artists = lyrics.artists
-    )
-}
-
-/**
- * Convert our [Lyric] model → accompanist's [SyncedLyrics] model.
- *
- * DEPRECATED: Only used as a fallback when rawText is unavailable.
- * The primary path uses AutoParser directly on rawText (see AccompanistLyricsContent).
- *
- * - LyricLine with hasWordSync + words → KaraokeLine.MainKaraokeLine
- *   (with syllables derived from each WordTimestamp).
- * - LyricLine without words → SyncedLine (line-level only).
- *
- * The end time of each line is the start time of the NEXT line (or
- * start + 2000ms for the last line).
- */
-private fun Lyric.toAccompanistSyncedLyrics(): com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics {
-    val accompanistLines = mutableListOf<com.mocharealm.accompanist.lyrics.core.model.ISyncedLine>()
-
-    lines.forEachIndexed { index, line ->
-        val startMs = line.timeMs.toInt().coerceAtLeast(0)
-        val endMs = (lines.getOrNull(index + 1)?.timeMs?.toInt()?.takeIf { it > startMs } ?: (startMs + 2000))
-            .coerceAtLeast(startMs + 1)
-
-        if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
-            val syllables = line.words.map { word ->
-                com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable(
-                    content = word.text,
-                    start = word.startTime.toInt().coerceAtLeast(0),
-                    end = word.endTime.toInt().coerceAtLeast(word.startTime.toInt() + 1)
-                )
-            }
-            accompanistLines.add(
-                com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine(
-                    syllables = syllables,
-                    translation = null,
-                    alignment = com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment.Start,
-                    start = startMs,
-                    end = endMs,
-                    phonetic = null,
-                    accompanimentLines = null
-                )
-            )
-        } else {
-            accompanistLines.add(
-                com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
-                    content = line.text.ifBlank { "♪" },
-                    translation = null,
-                    start = startMs,
-                    end = endMs
-                )
-            )
-        }
-    }
-
-    return com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(
-        lines = accompanistLines,
-        title = trackName ?: "",
-        id = "0",
-        artists = null
+        useBlurEffect = false,
+        offset = 100.dp
     )
 }
 
