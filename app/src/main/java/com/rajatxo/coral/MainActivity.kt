@@ -28,8 +28,8 @@ import androidx.core.view.WindowCompat
 import com.rajatxo.coral.playback.PlaybackConnection
 import com.rajatxo.coral.theme.CoralXTheme
 import com.rajatxo.coral.ui.foundation.CoralXScaffold
-import com.rajatxo.coral.ui.player.FullPlayer
 import com.rajatxo.coral.ui.player.MiniPlayer
+import com.rajatxo.coral.ui.player.Spiral2Player
 import com.rajatxo.coral.ui.screens.PermissionScreen
 import com.rajatxo.coral.ui.screens.PlaylistsScreen
 import com.rajatxo.coral.ui.screens.QuickPicksScreen
@@ -167,14 +167,14 @@ private fun CoralXRoot() {
             }
         }
 
-        // ★ Full player overlay — slides up when showFullPlayer is true
+        // ★ Spiral 2.0 player overlay — slides up when showFullPlayer is true
         AnimatedVisibility(
             visible = showFullPlayer,
             enter = slideInVertically { it } + fadeIn(),
             exit = slideOutVertically { it } + fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
-            FullPlayer(
+            Spiral2Player(
                 onDismiss = { showFullPlayer = false }
             )
         }
