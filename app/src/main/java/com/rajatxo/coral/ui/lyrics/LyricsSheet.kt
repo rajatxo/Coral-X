@@ -998,28 +998,12 @@ private fun SweptLyricLine(
 
     val fontSize = fontSizeSp.sp
     val fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold
+    val hasWordSync = line.hasWordSync && line.words != null && line.words.isNotEmpty()
 
-    // ★ Determine if this line should show the sweep animation.
-    //   - ONLY for word-synced lyrics (Enhanced LRC, TTML with word spans)
-    //   - ONLY when the line is actively being sung (isActive = true)
-    //   - Line-synced lyrics: NO sweep (just highlight + dim)
-    val showSweep = line.hasWordSync && line.words != null && line.words.isNotEmpty()
-
-    // ★ CRITICAL PERFORMANCE: Do NOT read clockMs.value here in composition!
-    //   Reading it here causes 60 recompositions/sec (one per frame) → jank.
-    //   Instead, always render both layers, and read clockMs.value ONLY inside
-    //   drawWithContent (draw phase doesn't trigger recomposition).
-    //
-    //   This is the #1 smoothness fix. BitChord does the same: their drawnAt()
-    //   lambda reads clock.longValue only inside drawWithContent.
-
-    // The text to display (♪ for instrumental gaps)
-    val text = line.text.ifBlank { "♪" }
-
-    // ★ Layout result — captured from the dim Text's onTextLayout.
-    //   Used in the draw phase to compute clipRect per visual row.
-    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-
+    // ★ PER-WORD RENDERING — what every lyrics app actually does.
+    //   Each word is a separate Text. Each word clips itself with clipRect.
+    //   No gradient. No BlendMode. No per-row complexity. Just clipRect.
+    //   Inspired by SimpMusic + BitChord approach (not copied).
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1033,90 +1017,119 @@ private fun SweptLyricLine(
                 indication = null
             ) { if (line.timeMs >= 0) onSeek(line.timeMs) }
     ) {
-        // Dim base layer (full line, low alpha)
+        if (hasWordSync && line.words != null) {
+            // ★ Word-synced: render each word separately in a FlowRow.
+            //   Each word: dim base (grey) + bright overlay (white) clipped by clipRect.
+            //   The progress per word is 0..1 based on word.startMs → word.endMs.
+            //   Clock read in drawWithContent for 60fps smoothness.
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                line.words.forEachIndexed { index, word ->
+                    val wordText = if (index < line.words.size - 1) "${word.text} " else word.text
+                    val isWordSung = isBefore // past line = all sung
+                    SweptWord(
+                        text = wordText,
+                        word = word,
+                        clockMs = clockMs,
+                        isActive = isActive,
+                        isBefore = isBefore,
+                        fontSize = fontSize,
+                        fontWeight = fontWeight
+                    )
+                }
+            }
+        } else {
+            // ★ Line-synced (no word sync): just show full text, dim or bright.
+            val text = line.text.ifBlank { "♪" }
+            val showBright = isActive || isBefore
+            Text(
+                text = text,
+                color = if (showBright) Color.White else Color.White.copy(alpha = 0.35f),
+                fontSize = fontSize,
+                fontFamily = CalSansFamily,
+                fontWeight = fontWeight,
+                lineHeight = (fontSize.value * 1.3f).sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * ★ A single word with a dim base + bright overlay clipped by clipRect.
+ *   The progress is 0..1 based on word.startMs → word.endMs.
+ *   Clock is read in drawWithContent for 60fps smoothness (no recomposition).
+ *   No gradient. No BlendMode. Just clipRect — what every lyrics app does.
+ */
+@Composable
+private fun SweptWord(
+    text: String,
+    word: WordTimestamp,
+    clockMs: androidx.compose.runtime.State<Long>,
+    isActive: Boolean,
+    isBefore: Boolean,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    fontWeight: FontWeight
+) {
+    // Determine if this word is fully sung, partially sung, or not sung
+    val fullySung = isBefore
+    val notStarted = !isActive && !isBefore
+
+    Box {
+        // Dim base (grey)
         Text(
             text = text,
             color = Color.White.copy(alpha = 0.35f),
             fontSize = fontSize,
             fontFamily = CalSansFamily,
-            fontWeight = fontWeight,
-            lineHeight = (fontSize.value * 1.3f).sp,
-            textAlign = TextAlign.Center,
-            maxLines = 3,
-            overflow = TextOverflow.Visible,
-            onTextLayout = { layoutResult = it },
-            modifier = Modifier.fillMaxWidth()
+            fontWeight = fontWeight
         )
-
-        // ★ Bright overlay layer — ALWAYS rendered.
-        //   The sweep clip is computed in the DRAW phase (drawWithContent),
-        //   reading clockMs.value there. This way clock updates (60fps) only
-        //   re-run the draw phase — no recomposition, no re-measurement = smooth.
-        //
-        //   For non-sweep lines (line-synced, already sung, active highlight):
-        //   the drawWithContent simply draws the full content (no clip).
-        //
-        //   For word-synced active lines: clipRect per visual row based on
-        //   the clock's current position → smooth sweep.
-        //
-        //   For non-active future lines: drawWithContent draws nothing (the
-        //   bright layer is effectively invisible because the clip rect is 0).
-        val shouldShowBright = showSweep || isActive || isBefore
-        if (shouldShowBright) {
+        // Bright overlay (white) — clipped by clipRect based on word progress
+        if (fullySung) {
+            // Fully sung — show full bright, no clip needed
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = fontSize,
+                fontFamily = CalSansFamily,
+                fontWeight = fontWeight
+            )
+        } else if (isActive) {
+            // Active line — clip per word based on clock
             Text(
                 text = text,
                 color = Color.White,
                 fontSize = fontSize,
                 fontFamily = CalSansFamily,
                 fontWeight = fontWeight,
-                lineHeight = (fontSize.value * 1.3f).sp,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Visible,
                 modifier = Modifier
-                    .fillMaxWidth()
                     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
-                        // ★ READ THE CLOCK HERE — in the DRAW phase, not composition.
-                        //   This is the key smoothness fix. When clockMs updates
-                        //   at 60fps, only this draw lambda re-runs — no Text
-                        //   recomposition, no re-measurement.
-
-                        if (!showSweep) {
+                        // ★ READ CLOCK IN DRAW PHASE — 60fps, no recomposition
+                        val pos = clockMs.value
+                        val progress = when {
+                            pos >= word.endTime -> 1f
+                            pos <= word.startTime -> 0f
+                            else -> ((pos - word.startTime).toFloat() /
+                                (word.endTime - word.startTime).coerceAtLeast(1L)).coerceIn(0f, 1f)
+                        }
+                        if (progress >= 1f) {
                             drawContent()
-                            return@drawWithContent
+                        } else if (progress > 0f) {
+                            // ★ Simple clipRect — GPU-accelerated, no gradient, no blend mode
+                            clipRect(right = size.width * progress) {
+                                this@drawWithContent.drawContent()
+                            }
                         }
-
-                        // ★ Word-synced: compute sungFraction from the clock
-                        val currentPos = if (isActive) clockMs.value else 0L
-                        val sungFraction = when {
-                            isActive -> computeSungFraction(line, currentPos)
-                            isBefore -> 1f
-                            else -> 0f
-                        }
-
-                        if (sungFraction <= 0f) return@drawWithContent
-                        if (sungFraction >= 1f) { drawContent(); return@drawWithContent }
-
-                        // ★ SIMPLE SMOOTH GRADIENT — one drawRect, one gradient.
-                        //   This is what the OLD version did that looked smooth.
-                        //   Black (keep) up to sungFraction → fade to Transparent (erase).
-                        //   The 0.06 feather creates the soft glow edge.
-                        drawContent()
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colorStops = arrayOf(
-                                    0f to Color.Black,
-                                    sungFraction to Color.Black,
-                                    (sungFraction + 0.06f).coerceAtMost(1f) to Color.Transparent,
-                                    1f to Color.Transparent
-                                )
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
                     }
             )
         }
+        // notStarted: only dim base shows, no bright overlay
     }
 }
 
