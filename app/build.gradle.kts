@@ -30,8 +30,8 @@ android {
         //   API 29+, so this is a safe bump.
         minSdk = 29
         targetSdk = 35
-        versionCode = 585
-        versionName = "0.5.85"
+        versionCode = 586
+        versionName = "0.5.86"
     }
 
     signingConfigs {
