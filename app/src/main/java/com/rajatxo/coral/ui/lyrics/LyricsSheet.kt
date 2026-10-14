@@ -824,14 +824,47 @@ private fun AccompanistLyricsContent(
     fontSizeSp: Float,
     onSeek: (Long) -> Unit
 ) {
-    // ★ Step 1: Parse raw lyrics using AutoParser.Builder().build()
-    //   Same as Lyricify: AutoParser.Builder().build().parse(rawText)
+    // ★ Step 1: Parse raw lyrics using AutoParser
+    //   Same as Lyricify: AutoParser().parse(rawText)
+    var parseError by remember { mutableStateOf<String?>(null) }
     val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
         remember(rawText) {
             try {
-                com.mocharealm.accompanist.lyrics.core.parser.AutoParser()
+                val result = com.mocharealm.accompanist.lyrics.core.parser.AutoParser()
                     .parse(rawText)
-            } catch (_: Exception) {
+                // ★ Check if we got KaraokeLine entries (word-level) or just SyncedLine (line-level)
+                val hasKaraoke = result.lines.any { it is com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine }
+                if (!hasKaraoke && result.lines.isNotEmpty()) {
+                    // AutoParser returned only line-level lines — try our LrcParser
+                    // which correctly parses word timestamps from Enhanced LRC + TTML
+                    val ourLines = com.rajatxo.coral.data.lyrics.LrcParser.parse(rawText)
+                    if (ourLines.any { it.hasWordSync }) {
+                        // Our parser found word sync — convert manually
+                        val lyric = com.rajatxo.coral.data.lyrics.Lyric(
+                            synced = true,
+                            lines = ourLines,
+                            source = com.rajatxo.coral.data.lyrics.LyricSource.MANUAL,
+                            rawText = rawText
+                        )
+                        return@remember convertToSyncedLyrics(lyric)
+                    }
+                }
+                result
+            } catch (e: Exception) {
+                // AutoParser crashed — try our LrcParser as fallback
+                parseError = e.message ?: "Unknown error"
+                try {
+                    val ourLines = com.rajatxo.coral.data.lyrics.LrcParser.parse(rawText)
+                    if (ourLines.isNotEmpty()) {
+                        val lyric = com.rajatxo.coral.data.lyrics.Lyric(
+                            synced = ourLines.any { it.timeMs >= 0 },
+                            lines = ourLines,
+                            source = com.rajatxo.coral.data.lyrics.LyricSource.MANUAL,
+                            rawText = rawText
+                        )
+                        return@remember convertToSyncedLyrics(lyric)
+                    }
+                } catch (_: Exception) { }
                 com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(emptyList())
             }
         }
@@ -910,6 +943,77 @@ private fun AccompanistLyricsContent(
         ),
         useBlurEffect = false,
         offset = 100.dp
+    )
+}
+
+// ═══ Helper: convert our Lyric model to accompanist's SyncedLyrics ═══
+
+/**
+ * Convert our Lyric model → accompanist's SyncedLyrics.
+ * Used as fallback when AutoParser returns only line-level (no KaraokeLine).
+ * Our LrcParser correctly parses word timestamps from Enhanced LRC + TTML,
+ * so if our parser found word sync, we convert manually.
+ */
+private fun convertToSyncedLyrics(
+    lyric: Lyric
+): com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics {
+    val lines = mutableListOf<com.mocharealm.accompanist.lyrics.core.model.ISyncedLine>()
+
+    lyric.lines.forEachIndexed { index, line ->
+        val startMs = line.timeMs.toInt().coerceAtLeast(0)
+        val nextStart = lyric.lines.getOrNull(index + 1)?.timeMs?.toInt() ?: (startMs + 3000)
+        val endMs = nextStart.coerceAtLeast(startMs + 1)
+
+        if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
+            // Word-synced → KaraokeLine with syllables
+            val syllables = line.words.map { word ->
+                com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable(
+                    content = word.text + " ",
+                    start = word.startTime.toInt().coerceAtLeast(0),
+                    end = word.endTime.toInt().coerceAtLeast(word.startTime.toInt() + 1)
+                )
+            }
+            try {
+                lines.add(
+                    com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine(
+                        syllables = syllables,
+                        translation = null,
+                        alignment = com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment.Start,
+                        start = startMs,
+                        end = endMs,
+                        phonetic = null,
+                        accompanimentLines = null
+                    )
+                )
+            } catch (_: Exception) {
+                // If KaraokeLine creation fails (end < start), fall back to SyncedLine
+                lines.add(
+                    com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
+                        content = line.text.ifBlank { "♪" },
+                        translation = null,
+                        start = startMs,
+                        end = endMs
+                    )
+                )
+            }
+        } else {
+            // Line-level only → SyncedLine
+            lines.add(
+                com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
+                    content = line.text.ifBlank { "♪" },
+                    translation = null,
+                    start = startMs,
+                    end = endMs
+                )
+            )
+        }
+    }
+
+    return com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(
+        lines = lines,
+        title = lyric.trackName ?: "",
+        id = "0",
+        artists = null
     )
 }
 
