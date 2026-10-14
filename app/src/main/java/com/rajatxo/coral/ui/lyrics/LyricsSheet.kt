@@ -42,9 +42,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -702,21 +704,20 @@ fun LyricsSheet(
  * ★ SweptLyricsContent — our own word-by-word karaoke renderer.
  *
  * Inspired by BitChord's SweptLyricLine approach:
+ *   - Frame clock via withFrameNanos — interpolates between player readings
+ *     (every ~500ms) so the sweep updates at 60fps. Without this, the sweep
+ *     "jumps" every 500ms → not smooth.
  *   - Two stacked Text layers per line:
  *     1. Dim base (white at low alpha) — full line
- *     2. Bright overlay (full white) — clipped to sung portion via a
- *        horizontal gradient that sweeps based on playback position
- *   - The sweep is computed in the DRAW phase (cheap — one clip + one redraw
- *     of already-measured text per frame)
- *   - NO accompanist library (too fragile — crashes on overlapping timelines,
- *     empty syllables, multi-agent edge cases)
+ *     2. Bright overlay (full white) — clipped to sung portion via horizontalGradient
+ *   - animatesFromMs / animatesUntilMs — each line has a time window when it's
+ *     actively animating. Outside that window, it's drawn statically (fully dim
+ *     or fully bright). Only the active line shows the moving sweep.
+ *   - NO accompanist library — pure Compose, can't crash.
  *   - Uses our existing Lyric model (LyricLine.words: List<WordTimestamp>)
- *   - Robust: handles missing words, overlapping timelines, empty lines,
- *     multi-person (v1:/v2: prefix stripped by LrcParser)
  *
- * Layout:
- *   LazyColumn of lines, auto-scroll to active line, tap-to-seek.
- *   Active line = large + bright sweep. Inactive lines = dimmed by distance.
+ * Line-synced lyrics (no word sync): NO sweep animation — just highlight the
+ * active line + dim others. The sweep is for word-synced lyrics only.
  */
 @Composable
 private fun SweptLyricsContent(
@@ -733,6 +734,12 @@ private fun SweptLyricsContent(
     val activeIndex = remember(lyric.lines, currentPositionMs) {
         findActiveLineIndex(lyric.lines, currentPositionMs)
     }
+
+    // ★ Frame clock — interpolates between player readings so the sweep
+    //   updates at 60fps. The player reports position every ~500ms; without
+    //   interpolation, the sweep "jumps" every 500ms → not smooth.
+    //   Keyed on lyric so the clock resets when the song changes.
+    val clockMs = rememberFrameClock(lyric, currentPositionMs)
 
     val listState = rememberLazyListState()
 
@@ -754,13 +761,62 @@ private fun SweptLyricsContent(
             val line = lyric.lines[index]
             val distance = kotlin.math.abs(index - activeIndex)
             val isActive = index == activeIndex
+            // ★ isBefore: this line has already been sung (index < active).
+            //   Used to show fully bright (no sweep) for past lines.
+            val isBefore = index < activeIndex
             SweptLyricLine(
                 line = line,
-                positionMs = currentPositionMs,
+                clockMs = clockMs,
                 isActive = isActive,
                 distanceFromActive = distance,
+                isBefore = isBefore,
                 onSeek = onSeek
             )
+        }
+    }
+}
+
+/**
+ * ★ Frame clock — interpolates between player readings so the sweep updates
+ *   at 60fps (buttery smooth). The player reports position every ~500ms;
+ *   without interpolation, the sweep "jumps" every 500ms.
+ *
+ * Returns a State<Long> that updates every frame (~16ms) with the interpolated
+ * playback position. Read inside draw lambdas so only the draw phase re-runs
+ * each frame (not composition).
+ *
+ * BitChord's LyricClock is more sophisticated (steers rather than sets, learns
+ * playback rate, handles seeks). This is a simpler version: linear
+ * interpolation between the last two readings. Good enough for smoothness.
+ */
+@Composable
+private fun rememberFrameClock(lyric: Lyric, currentPositionMs: Long): androidx.compose.runtime.State<Long> {
+    // ★ Anchor: the last reported position + when it was reported.
+    //   Stored in mutableStateOf so the produceState block can read the
+    //   latest value via snapshotFlow.
+    val anchor = remember(lyric) {
+        mutableStateOf(currentPositionMs to System.nanoTime())
+    }
+    // Update the anchor when a new reading arrives
+    if (currentPositionMs != anchor.value.first) {
+        anchor.value = currentPositionMs to System.nanoTime()
+    }
+
+    // ★ Frame-by-frame interpolation. withFrameNanos fires every vsync (~16ms).
+    //   We compute: displayed = lastReported + (now - lastReportedAt)
+    //   This advances the position by exactly the elapsed wall-clock time.
+    //   Reading anchor.value inside the lambda keeps it subscribed to changes.
+    return androidx.compose.runtime.produceState(
+        initialValue = currentPositionMs,
+        lyric
+    ) {
+        while (true) {
+            withFrameNanos { _ ->
+                val (reportedMs, reportedAtNanos) = anchor.value
+                val nowNanos = System.nanoTime()
+                val elapsedMs = (nowNanos - reportedAtNanos) / 1_000_000.0
+                value = reportedMs + elapsedMs.toLong()
+            }
         }
     }
 }
@@ -773,18 +829,24 @@ private fun SweptLyricsContent(
  *   1. Dim base (white at alpha based on distance from active line)
  *   2. Bright overlay (full white) clipped to sung portion via horizontalGradient
  *
- * The clip is recomputed in the draw phase, so a frame costs one clip and one
- * redraw of already-measured text.
+ * ★ Phase-based drawing (BitChord approach):
+ *   - BEFORE (clock < line start): all dim, no sweep → static, no redraw
+ *   - MOVING (line start <= clock <= line end): sweep active → redraws per frame
+ *   - AFTER (clock > line end): all bright, no sweep → static, no redraw
+ *   Only MOVING phase reads the clock → only the active line redraws per frame.
  *
- * For lines WITHOUT word sync (regular LRC), the whole line sweeps based on
- * the line's start/end time — still looks good.
+ * ★ Line-synced lyrics (no word sync): NO sweep animation. Just highlight the
+ *   active line + dim others. The sweep is for word-synced lyrics only —
+ *   applying a fake sweep to line-synced lyrics looks wrong because the sweep
+ *   doesn't match the actual word boundaries.
  */
 @Composable
 private fun SweptLyricLine(
     line: LyricLine,
-    positionMs: Long,
+    clockMs: androidx.compose.runtime.State<Long>,
     isActive: Boolean,
     distanceFromActive: Int,
+    isBefore: Boolean,
     onSeek: (Long) -> Unit
 ) {
     // Progressive opacity by distance from active line
@@ -812,17 +874,27 @@ private fun SweptLyricLine(
     val fontSize = 24.sp
     val fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold
 
-    // ★ Compute the sung fraction (0..1) for the sweep clip
-    //   - If line has word sync: sum chars sung across all words
-    //   - If line has no word sync (regular LRC): linear interpolation line start→end
-    val sungFraction = if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
-        computeSungFraction(line, positionMs)
-    } else {
-        // Line-level sweep: 0 before start, 1 after end, linear in between
-        val lineEnd = (line.timeMs + 4000L) // fallback if no next line
-        if (positionMs <= line.timeMs) 0f
-        else if (positionMs >= lineEnd) 1f
-        else (positionMs - line.timeMs).toFloat() / (lineEnd - line.timeMs).coerceAtLeast(1L)
+    // ★ Determine if this line should show the sweep animation.
+    //   - ONLY for word-synced lyrics (Enhanced LRC, TTML with word spans)
+    //   - ONLY when the line is actively being sung (isActive = true)
+    //   - Line-synced lyrics: NO sweep (just highlight + dim)
+    val showSweep = line.hasWordSync && line.words != null && line.words.isNotEmpty()
+
+    // ★ Read the clock ONLY when this line is actively animating (active + word-synced).
+    //   Outside the animation window, the line is static (fully dim or fully
+    //   bright) and doesn't need to read the clock → doesn't redraw per frame.
+    val isAnimating = isActive && showSweep
+    val currentPos = if (isAnimating) clockMs.value else 0L
+
+    // ★ Compute the sung fraction (0..1) for the sweep clip.
+    //   - Word-synced + active: compute from clock (sweep)
+    //   - Word-synced + not active: 1.0 if before (already sung), 0.0 if after
+    //   - Line-synced: 0 (no sweep — highlight via dim/bright only)
+    val sungFraction = when {
+        !showSweep -> 0f  // Line-synced: no sweep
+        isAnimating -> computeSungFraction(line, currentPos)
+        isBefore -> 1f    // Past word-synced line: fully sung
+        else -> 0f        // Future word-synced line: not sung yet
     }
 
     // The text to display (♪ for instrumental gaps)
@@ -831,6 +903,18 @@ private fun SweptLyricLine(
     // ★ Layout result captured from the dim Text — used to compute the sweep
     //   clip rectangle based on character positions
     var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    // ★ Determine if the bright overlay should be shown at all.
+    //   - Word-synced: show if sungFraction > 0 (with sweep clip if < 1)
+    //   - Line-synced + active: show full bright (highlight)
+    //   - Line-synced + isBefore: show full bright (already sung)
+    //   - Line-synced + future: don't show bright (dim only)
+    val showBright = when {
+        showSweep -> sungFraction > 0f
+        isActive -> true
+        isBefore -> true
+        else -> false
+    }
 
     Box(
         modifier = Modifier
@@ -859,8 +943,8 @@ private fun SweptLyricLine(
             onTextLayout = { layoutResult = it },
             modifier = Modifier.fillMaxWidth()
         )
-        // Bright overlay layer — clipped to sung portion
-        if (sungFraction > 0f) {
+        // Bright overlay layer — only drawn if there's something sung/highlighted
+        if (showBright) {
             Text(
                 text = text,
                 color = Color.White,
@@ -873,27 +957,33 @@ private fun SweptLyricLine(
                 overflow = TextOverflow.Visible,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        drawContent()
-                        // Clip to sung portion via a horizontal gradient mask
-                        val measured = layoutResult
-                        if (measured != null && sungFraction < 1f) {
-                            val totalWidth = measured.size.width.toFloat()
-                            val sungWidth = totalWidth * sungFraction
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colorStops = arrayOf(
-                                        0f to Color.Black,
-                                        sungFraction to Color.Black,
-                                        (sungFraction + 0.05f).coerceAtMost(1f) to Color.Transparent,
-                                        1f to Color.Transparent
-                                    )
-                                ),
-                                blendMode = BlendMode.DstIn
-                            )
+                    .then(
+                        if (showSweep && sungFraction < 1f) {
+                            // Word-synced + partially sung: apply sweep clip
+                            Modifier
+                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                                .drawWithContent {
+                                    drawContent()
+                                    val measured = layoutResult
+                                    if (measured != null && sungFraction < 1f) {
+                                        drawRect(
+                                            brush = Brush.horizontalGradient(
+                                                colorStops = arrayOf(
+                                                    0f to Color.Black,
+                                                    sungFraction to Color.Black,
+                                                    (sungFraction + 0.05f).coerceAtMost(1f) to Color.Transparent,
+                                                    1f to Color.Transparent
+                                                )
+                                            ),
+                                            blendMode = BlendMode.DstIn
+                                        )
+                                    }
+                                }
+                        } else {
+                            // Line-synced or fully sung: no clip (full bright)
+                            Modifier
                         }
-                    }
+                    )
             )
         }
     }
