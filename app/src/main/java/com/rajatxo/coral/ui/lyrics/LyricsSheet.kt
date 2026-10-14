@@ -1081,14 +1081,8 @@ private fun SweptLyricLine(
                         //   This is the key smoothness fix. When clockMs updates
                         //   at 60fps, only this draw lambda re-runs — no Text
                         //   recomposition, no re-measurement.
-                        val measured = layoutResult ?: run {
-                            drawContent()
-                            return@drawWithContent
-                        }
 
                         if (!showSweep) {
-                            // Line-synced or no word sync: just draw full bright
-                            // (for active lines and already-sung lines)
                             drawContent()
                             return@drawWithContent
                         }
@@ -1097,89 +1091,29 @@ private fun SweptLyricLine(
                         val currentPos = if (isActive) clockMs.value else 0L
                         val sungFraction = when {
                             isActive -> computeSungFraction(line, currentPos)
-                            isBefore -> 1f    // Past word-synced line: fully sung
-                            else -> 0f        // Future word-synced line: not sung yet
+                            isBefore -> 1f
+                            else -> 0f
                         }
 
-                        if (sungFraction <= 0f) {
-                            // Nothing sung yet — don't draw the bright overlay
-                            return@drawWithContent
-                        }
-                        if (sungFraction >= 1f) {
-                            // Fully sung — draw entire content (no clip needed)
-                            drawContent()
-                            return@drawWithContent
-                        }
+                        if (sungFraction <= 0f) return@drawWithContent
+                        if (sungFraction >= 1f) { drawContent(); return@drawWithContent }
 
-                        // ★ Partially sung — clipRect per visual row.
-                        //   GPU-accelerated, no layer creation, smooth 60fps.
-                        val totalChars = text.length
-                        val sungChars = totalChars * sungFraction
-
-                        for (rowIndex in 0 until measured.lineCount) {
-                            val rowStart = measured.getLineStart(rowIndex)
-                            val rowEnd = measured.getLineEnd(rowIndex, visibleEnd = true)
-                            if (sungChars <= rowStart) continue  // Row not sung — skip
-
-                            val rowLeft = measured.getLineLeft(rowIndex)
-                            val rowRight = measured.getLineRight(rowIndex)
-                            val rowTop = measured.getLineTop(rowIndex)
-                            val rowBottom = measured.getLineBottom(rowIndex)
-
-                            if (sungChars >= rowEnd) {
-                                // Full row sung — clip to entire row
-                                clipRect(left = rowLeft, top = rowTop, right = rowRight, bottom = rowBottom) {
-                                    this@drawWithContent.drawContent()
-                                }
-                            } else {
-                                // ★ Partial row — clip to sung character boundary
-                                //   PLUS add a soft feathered gradient at the edge
-                                //   for smooth transition (no hard line).
-                                //   BitChord does this: clipRect for the main clip,
-                                //   then a horizontalGradient with DstIn at the boundary.
-                                val sungWidth = try {
-                                    val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
-                                    measured.getBoundingBox(charOffset).right - rowLeft
-                                } catch (_: Exception) {
-                                    val rowFraction = (sungChars - rowStart) /
-                                        (rowEnd - rowStart).coerceAtLeast(1)
-                                    (rowRight - rowLeft) * rowFraction
-                                }
-                                val cutRight = (rowLeft + sungWidth).coerceAtMost(rowRight)
-                                // ★ FEATHER: 20px soft edge at the sweep boundary.
-                                //   The gradient goes from opaque (sung) to transparent
-                                //   (unsung) over 20px — this is what makes it look like
-                                //   a smooth glow instead of a hard line.
-                                val featherPx = 60f  // wider = softer, but don't exceed row width
-                                val featherStart = (cutRight - featherPx).coerceAtLeast(rowLeft)
-                                // Main clip: everything up to the feather start
-                                clipRect(left = rowLeft, top = rowTop, right = featherStart, bottom = rowBottom) {
-                                    this@drawWithContent.drawContent()
-                                }
-                                // Feather zone: soft gradient from featherStart to cutRight
-                                clipRect(left = featherStart, top = rowTop, right = rowRight, bottom = rowBottom) {
-                                    this@drawWithContent.drawContent()
-                                    // ★ Gradient: Color.Black (opaque) at featherStart (keep text = bright)
-                                    //   → Color.Transparent at cutRight (erase text = dim)
-                                    //   This creates a SMOOTH FADE from bright to dim.
-                                    //   PREVIOUS BUG: colors were reversed — erasing the sung
-                                    //   part and keeping the unsung part = backwards!
-                                    drawRect(
-                                        brush = Brush.horizontalGradient(
-                                            colors = listOf(Color.Black, Color.Transparent),
-                                            startX = featherStart,
-                                            endX = cutRight
-                                        ),
-                                        topLeft = androidx.compose.ui.geometry.Offset(featherStart, rowTop),
-                                        size = androidx.compose.ui.geometry.Size(
-                                            cutRight - featherStart,
-                                            rowBottom - rowTop
-                                        ),
-                                        blendMode = BlendMode.DstIn
-                                    )
-                                }
-                            }
-                        }
+                        // ★ SIMPLE SMOOTH GRADIENT — one drawRect, one gradient.
+                        //   This is what the OLD version did that looked smooth.
+                        //   Black (keep) up to sungFraction → fade to Transparent (erase).
+                        //   The 0.06 feather creates the soft glow edge.
+                        drawContent()
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0f to Color.Black,
+                                    sungFraction to Color.Black,
+                                    (sungFraction + 0.06f).coerceAtMost(1f) to Color.Transparent,
+                                    1f to Color.Transparent
+                                )
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
                     }
             )
         }
