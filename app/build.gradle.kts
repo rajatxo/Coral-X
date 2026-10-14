@@ -17,7 +17,10 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.rajatxo.coral"
-    compileSdk = 35
+    // ★ Bumped compileSdk 35 → 37 because TagLib requires minCompileSdk=37
+    //   in its AAR metadata. AGP bumped to 8.13.2 in build.gradle.kts (root)
+    //   to support 37.
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.rajatxo.coralx"
