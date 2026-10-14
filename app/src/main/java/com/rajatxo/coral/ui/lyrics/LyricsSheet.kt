@@ -1159,10 +1159,14 @@ private fun SweptLyricLine(
                                 // Feather zone: soft gradient from featherStart to cutRight
                                 clipRect(left = featherStart, top = rowTop, right = rowRight, bottom = rowBottom) {
                                     this@drawWithContent.drawContent()
-                                    // Overlay a gradient mask that fades out
+                                    // ★ Gradient: Color.Black (opaque) at featherStart (keep text = bright)
+                                    //   → Color.Transparent at cutRight (erase text = dim)
+                                    //   This creates a SMOOTH FADE from bright to dim.
+                                    //   PREVIOUS BUG: colors were reversed — erasing the sung
+                                    //   part and keeping the unsung part = backwards!
                                     drawRect(
                                         brush = Brush.horizontalGradient(
-                                            colors = listOf(Color.Transparent, Color.Black),
+                                            colors = listOf(Color.Black, Color.Transparent),
                                             startX = featherStart,
                                             endX = cutRight
                                         ),
