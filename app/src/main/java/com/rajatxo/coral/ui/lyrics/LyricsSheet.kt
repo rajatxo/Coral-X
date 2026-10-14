@@ -55,13 +55,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -475,12 +477,15 @@ fun LyricsSheet(
                     }
                 }
                 lyric != null -> {
-                    // ★ Use accompanist KaraokeLyricsView for word-synced lyrics
-                    //   (TTML, Enhanced LRC, YRC, KRC, Lyricify Syllable) — proper
-                    //   karaoke animation + multi-person + accompaniment lines.
-                    //   Fall back to our CinematicLyricsContent for plain/line-synced.
-                    if (lyric!!.hasWordSync || lyric!!.synced) {
-                        AccompanistLyricsContent(
+                    // ★ Use our own SweptLyricsContent for word-synced lyrics.
+                    //   BitChord-inspired approach: two stacked Text layers (dim base
+                    //   + bright clipped to sung portion) with a horizontal sweep
+                    //   clip. No accompanist library — too fragile (crashes on
+                    //   overlapping timelines, empty syllables, multi-agent edge
+                    //   cases). Our renderer is simple + robust.
+                    //   Falls back to CinematicLyricsContent for unsynced plain text.
+                    if (lyric!!.synced) {
+                        SweptLyricsContent(
                             lyric = lyric!!,
                             currentPositionMs = currentPositionMs,
                             onSeek = onSeek
@@ -689,6 +694,240 @@ fun LyricsSheet(
             )
         }
     }
+}
+
+// ═══ Swept lyrics content (BitChord-inspired, NO accompanist library) ═══
+
+/**
+ * ★ SweptLyricsContent — our own word-by-word karaoke renderer.
+ *
+ * Inspired by BitChord's SweptLyricLine approach:
+ *   - Two stacked Text layers per line:
+ *     1. Dim base (white at low alpha) — full line
+ *     2. Bright overlay (full white) — clipped to sung portion via a
+ *        horizontal gradient that sweeps based on playback position
+ *   - The sweep is computed in the DRAW phase (cheap — one clip + one redraw
+ *     of already-measured text per frame)
+ *   - NO accompanist library (too fragile — crashes on overlapping timelines,
+ *     empty syllables, multi-agent edge cases)
+ *   - Uses our existing Lyric model (LyricLine.words: List<WordTimestamp>)
+ *   - Robust: handles missing words, overlapping timelines, empty lines,
+ *     multi-person (v1:/v2: prefix stripped by LrcParser)
+ *
+ * Layout:
+ *   LazyColumn of lines, auto-scroll to active line, tap-to-seek.
+ *   Active line = large + bright sweep. Inactive lines = dimmed by distance.
+ */
+@Composable
+private fun SweptLyricsContent(
+    lyric: Lyric,
+    currentPositionMs: Long,
+    onSeek: (Long) -> Unit
+) {
+    if (!lyric.synced || lyric.lines.isEmpty()) {
+        CinematicLyricsContent(lyric, currentPositionMs, onSeek)
+        return
+    }
+
+    // ★ Active line index — binary search for the current line
+    val activeIndex = remember(lyric.lines, currentPositionMs) {
+        findActiveLineIndex(lyric.lines, currentPositionMs)
+    }
+
+    val listState = rememberLazyListState()
+
+    // Auto-scroll: active line at ~1/3 from top
+    LaunchedEffect(activeIndex) {
+        if (activeIndex >= 0 && activeIndex < lyric.lines.size) {
+            val target = (activeIndex - 3).coerceAtLeast(0)
+            listState.animateScrollToItem(target)
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 100.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        items(lyric.lines.size) { index ->
+            val line = lyric.lines[index]
+            val distance = kotlin.math.abs(index - activeIndex)
+            val isActive = index == activeIndex
+            SweptLyricLine(
+                line = line,
+                positionMs = currentPositionMs,
+                isActive = isActive,
+                distanceFromActive = distance,
+                onSeek = onSeek
+            )
+        }
+    }
+}
+
+/**
+ * A single lyric line with the sung part lit, the rest dimmed, and the boundary
+ * travelling across the words in time with the vocal.
+ *
+ * Two copies of the same text stacked:
+ *   1. Dim base (white at alpha based on distance from active line)
+ *   2. Bright overlay (full white) clipped to sung portion via horizontalGradient
+ *
+ * The clip is recomputed in the draw phase, so a frame costs one clip and one
+ * redraw of already-measured text.
+ *
+ * For lines WITHOUT word sync (regular LRC), the whole line sweeps based on
+ * the line's start/end time — still looks good.
+ */
+@Composable
+private fun SweptLyricLine(
+    line: LyricLine,
+    positionMs: Long,
+    isActive: Boolean,
+    distanceFromActive: Int,
+    onSeek: (Long) -> Unit
+) {
+    // Progressive opacity by distance from active line
+    val targetAlpha = when {
+        isActive -> 1f
+        distanceFromActive == 1 -> 0.5f
+        distanceFromActive == 2 -> 0.3f
+        distanceFromActive == 3 -> 0.18f
+        else -> 0.1f
+    }
+    val animatedAlpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec = tween(if (isActive) 330 else 500),
+        label = "lineAlpha"
+    )
+
+    // Scale: active = 1.0, inactive = 0.96
+    val targetScale = if (isActive) 1f else 0.96f
+    val animatedScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = tween(166),
+        label = "lineScale"
+    )
+
+    val fontSize = 24.sp
+    val fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold
+
+    // ★ Compute the sung fraction (0..1) for the sweep clip
+    //   - If line has word sync: sum chars sung across all words
+    //   - If line has no word sync (regular LRC): linear interpolation line start→end
+    val sungFraction = if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
+        computeSungFraction(line, positionMs)
+    } else {
+        // Line-level sweep: 0 before start, 1 after end, linear in between
+        val lineEnd = (line.timeMs + 4000L) // fallback if no next line
+        if (positionMs <= line.timeMs) 0f
+        else if (positionMs >= lineEnd) 1f
+        else (positionMs - line.timeMs).toFloat() / (lineEnd - line.timeMs).coerceAtLeast(1L)
+    }
+
+    // The text to display (♪ for instrumental gaps)
+    val text = line.text.ifBlank { "♪" }
+
+    // ★ Layout result captured from the dim Text — used to compute the sweep
+    //   clip rectangle based on character positions
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = animatedAlpha
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { if (line.timeMs >= 0) onSeek(line.timeMs) }
+    ) {
+        // Dim base layer (full line, low alpha)
+        Text(
+            text = text,
+            color = Color.White.copy(alpha = 0.35f),
+            fontSize = fontSize,
+            fontFamily = CalSansFamily,
+            fontWeight = fontWeight,
+            lineHeight = (fontSize.value * 1.3f).sp,
+            textAlign = TextAlign.Center,
+            maxLines = 3,
+            overflow = TextOverflow.Visible,
+            onTextLayout = { layoutResult = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        // Bright overlay layer — clipped to sung portion
+        if (sungFraction > 0f) {
+            Text(
+                text = text,
+                color = Color.White,
+                fontSize = fontSize,
+                fontFamily = CalSansFamily,
+                fontWeight = fontWeight,
+                lineHeight = (fontSize.value * 1.3f).sp,
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Visible,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        // Clip to sung portion via a horizontal gradient mask
+                        val measured = layoutResult
+                        if (measured != null && sungFraction < 1f) {
+                            val totalWidth = measured.size.width.toFloat()
+                            val sungWidth = totalWidth * sungFraction
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colorStops = arrayOf(
+                                        0f to Color.Black,
+                                        sungFraction to Color.Black,
+                                        (sungFraction + 0.05f).coerceAtMost(1f) to Color.Transparent,
+                                        1f to Color.Transparent
+                                    )
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                    }
+            )
+        }
+    }
+}
+
+/**
+ * Compute the fraction (0..1) of characters sung at [positionMs] for a line
+ * with word sync. Each word contributes its character count, and we sum how
+ * many characters are sung across all words.
+ *
+ * For a word: 0 before start, 1 after end, linear in between.
+ */
+private fun computeSungFraction(line: LyricLine, positionMs: Long): Float {
+    val words = line.words ?: return 0f
+    if (words.isEmpty()) return 0f
+
+    var totalChars = 0
+    var sungChars = 0f
+
+    words.forEach { word ->
+        val wordLen = word.text.length.coerceAtLeast(1)
+        totalChars += wordLen
+        when {
+            positionMs >= word.endTime -> sungChars += wordLen
+            positionMs <= word.startTime -> sungChars += 0f
+            else -> {
+                val span = (word.endTime - word.startTime).coerceAtLeast(1L)
+                val frac = (positionMs - word.startTime).toFloat() / span
+                sungChars += wordLen * frac
+            }
+        }
+    }
+
+    return if (totalChars == 0) 0f else (sungChars / totalChars).coerceIn(0f, 1f)
 }
 
 // ═══ Accompanist lyrics content (word-synced karaoke via accompanist-lyrics-ui) ═══
