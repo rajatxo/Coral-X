@@ -960,17 +960,27 @@ private fun convertToSyncedLyrics(
     val lines = mutableListOf<com.mocharealm.accompanist.lyrics.core.model.ISyncedLine>()
 
     lyric.lines.forEachIndexed { index, line ->
+        // ★ Skip bg: (background vocal) lines — they cause crashes
+        //   because their timestamps overlap with main vocal lines
+        if (line.text.startsWith("bg:") || line.text.startsWith("[bg:")) {
+            return@forEachIndexed
+        }
+
         val startMs = line.timeMs.toInt().coerceAtLeast(0)
         val nextStart = lyric.lines.getOrNull(index + 1)?.timeMs?.toInt() ?: (startMs + 3000)
         val endMs = nextStart.coerceAtLeast(startMs + 1)
 
         if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
-            // Word-synced → KaraokeLine with syllables
+            // ★ Sanitize word timestamps: ensure end >= start + 1
+            //   Real-world Enhanced LRC has overlapping/invalid timestamps
+            //   that crash KaraokeSyllable (init { require(end >= start) })
             val syllables = line.words.map { word ->
+                val wStart = word.startTime.toInt().coerceAtLeast(0)
+                val wEnd = word.endTime.toInt().coerceAtLeast(wStart + 1)
                 com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable(
                     content = word.text + " ",
-                    start = word.startTime.toInt().coerceAtLeast(0),
-                    end = word.endTime.toInt().coerceAtLeast(word.startTime.toInt() + 1)
+                    start = wStart,
+                    end = wEnd
                 )
             }
             try {
@@ -986,7 +996,6 @@ private fun convertToSyncedLyrics(
                     )
                 )
             } catch (_: Exception) {
-                // If KaraokeLine creation fails (end < start), fall back to SyncedLine
                 lines.add(
                     com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
                         content = line.text.ifBlank { "♪" },
@@ -997,7 +1006,6 @@ private fun convertToSyncedLyrics(
                 )
             }
         } else {
-            // Line-level only → SyncedLine
             lines.add(
                 com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
                     content = line.text.ifBlank { "♪" },

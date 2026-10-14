@@ -221,13 +221,27 @@ class LyricsRepository(private val context: Context) {
         lrcText: String
     ): Lyric? = withContext(Dispatchers.IO) {
         if (track.isBlank() || artist.isBlank() || lrcText.isBlank()) return@withContext null
+
+        // ★ Try our LrcParser first
         val lines = LrcParser.parse(lrcText)
-        if (lines.isEmpty()) return@withContext null
-        val hasWordSync = lines.any { it.hasWordSync }
-        val hasTimestamps = lines.any { it.timeMs >= 0 }
+
+        // ★ If LrcParser fails (returns empty), still save the raw text.
+        //   The render-time AutoParser might handle formats LrcParser can't
+        //   (complex TTML with namespaces, etc.).
+        //   We create a minimal Lyric with just rawText + synced=true.
+        //   The AccompanistLyricsContent will parse it at render time.
+        val (effectiveLines, hasWordSync, hasTimestamps) = if (lines.isNotEmpty()) {
+            Triple(lines, lines.any { it.hasWordSync }, lines.any { it.timeMs >= 0 })
+        } else {
+            // LrcParser couldn't parse it — save raw text anyway.
+            // AutoParser at render time will try to parse it.
+            // Mark as synced=true so the AccompanistLyricsContent path is taken.
+            Triple(emptyList(), false, true)
+        }
+
         val lyric = Lyric(
             synced = hasTimestamps,
-            lines = lines,
+            lines = effectiveLines,
             source = LyricSource.MANUAL,
             trackName = track,
             artistName = artist,
