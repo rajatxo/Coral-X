@@ -62,9 +62,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -289,38 +292,34 @@ fun Spiral2Player(
     ) {
         val activeLine = lyricData!!.lines[activeLineIndex]
         if (activeLine.hasWordSync && activeLine.words != null) {
-            androidx.compose.ui.text.buildAnnotatedString {
+            buildAnnotatedString {
                 activeLine.words.forEach { word ->
                     val isWordActiveOrPast = positionMs >= word.startTime
                     if (isWordActiveOrPast) {
-                        androidx.compose.ui.text.withStyle(
-                            androidx.compose.ui.text.SpanStyle(
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                        ) { append(word.text) }
+                        withStyle(SpanStyle(
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )) { append(word.text) }
                     } else {
-                        androidx.compose.ui.text.withStyle(
-                            androidx.compose.ui.text.SpanStyle(
-                                color = Color.White.copy(alpha = 0.35f)
-                            )
-                        ) { append(word.text) }
+                        withStyle(SpanStyle(
+                            color = Color.White.copy(alpha = 0.35f)
+                        )) { append(word.text) }
                     }
                     append(" ")
                 }
             }
         } else {
-            androidx.compose.ui.text.buildAnnotatedString {
-                androidx.compose.ui.text.withStyle(
-                    androidx.compose.ui.text.SpanStyle(color = Color.White)
-                ) { append(lyricLineText) }
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = Color.White)) {
+                    append(lyricLineText)
+                }
             }
         }
     } else {
-        androidx.compose.ui.text.buildAnnotatedString {
-            androidx.compose.ui.text.withStyle(
-                androidx.compose.ui.text.SpanStyle(color = Color.White)
-            ) { append(lyricLineText) }
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = Color.White)) {
+                append(lyricLineText)
+            }
         }
     }
 
