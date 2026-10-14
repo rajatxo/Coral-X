@@ -128,6 +128,11 @@ fun LyricsSheet(
     // Menu + dialog state
     var showMenu by remember { mutableStateOf(false) }
 
+    // ★ Lyrics picker overlay state — when true, opens the LyricsPicker
+    //   full-screen overlay showing all LrcLib candidates for the song.
+    //   User can pick the candidate whose duration matches their local file.
+    var showLyricsPicker by remember { mutableStateOf(false) }
+
     // Paste-lyrics dialog state — when the user picks "Paste Lyrics"
     // from the menu, this dialog opens with a multi-line text field
     // where they can paste LRC-formatted lyrics (with [mm:ss.xxx]
@@ -169,34 +174,25 @@ fun LyricsSheet(
         }
     }
 
-    // ─── Initial load: imported (pasted/manual) > embedded > cached fetched ───
-    // Priority order rationale:
-    //   1. IMPORTED (.imported.json) — user explicitly pasted or .lrc-imported
-    //      lyrics. This is the highest-authority source: the user picked
-    //      these lyrics on purpose, so they should always win over anything
-    //      auto-fetched from the network. Without this priority, pasting
-    //      new lyrics would update the strip (via onLyricsFetched) but the
-    //      sheet would still show the old LrcLib lyrics from embeddedLyrics.
-    //   2. EMBEDDED (passed in from the player's auto-fetch) — LrcLib /
-    //      NetEase / KuGou result, or actual file-embedded ID3 lyrics.
-    //   3. CACHED fetched — fallback if neither imported nor embedded exist.
+    // ─── Initial load: embedded > imported > cached fetched ───
+    // ★ Priority order (per user request):
+    //   1. EMBEDDED — lyrics read straight from the audio file via TagLib
+    //      (the user's own file's lyrics — TTML, ID3 SYLT/USLT, Vorbis LYRICS).
+    //      This is the PRIMARY source. Skipped if albumArtUri is null (can't
+    //      open the file).
+    //   2. IMPORTED (.imported.json) — user pasted or .lrc-imported lyrics.
+    //      Secondary authority — user picked these on purpose.
+    //   3. CACHED fetched — fallback from a previous network fetch.
     //
-    // Auto-fetch from LrcLib is intentionally NOT done here. The user must
-    // trigger Fetch / Search / Import / Paste via the menu.
+    // The auto-fetch chain in Spiral2Player (embedded → imported → cached →
+    // LrcLib → KuGou → NetEase) populates `embeddedLyrics` with whatever it
+    // found, so we just trust that here. The sheet doesn't do its own network
+    // fetch — user must trigger Fetch / Pick / Import / Paste via the menu.
     LaunchedEffect(trackName, artistName, embeddedLyrics) {
         isLoading = false
         errorMessage = null
 
-        // 1. Imported (pasted / .lrc file) — top priority
-        val imported = withContext(Dispatchers.IO) {
-            repository.getImportedLrc(trackName, artistName)
-        }
-        if (imported != null) {
-            lyric = imported
-            return@LaunchedEffect
-        }
-
-        // 2. Embedded lyrics (from audio metadata or player auto-fetch)
+        // 1. Embedded lyrics (passed in from the player's auto-fetch chain)
         when {
             !embeddedLyrics.isNullOrBlank() -> {
                 val lines = withContext(Dispatchers.IO) { LrcParser.parse(embeddedLyrics) }
@@ -215,8 +211,16 @@ fun LyricsSheet(
                     lyric = null
                 }
             }
-            // 3. Cached fetched lyrics (from a previous Fetch/Search action)
+            // 2. Imported (pasted / .lrc file) — secondary priority
             else -> {
+                val imported = withContext(Dispatchers.IO) {
+                    repository.getImportedLrc(trackName, artistName)
+                }
+                if (imported != null) {
+                    lyric = imported
+                    return@LaunchedEffect
+                }
+                // 3. Cached fetched lyrics (from a previous Fetch/Search action)
                 val cached = withContext(Dispatchers.IO) {
                     repository.getCachedLyrics(trackName, artistName)
                 }
@@ -382,27 +386,23 @@ fun LyricsSheet(
                         //   showing all LrcLib candidates. User picks one
                         //   based on duration match. Solves the wrong-sync
                         //   problem when a song has multiple releases.
-                        //   (TODO: port LyricsPicker from old Coral — for now
-                        //    user can use Fetch Lyrics which auto-picks the
-                        //    best candidate via duration scoring.)
                         DropdownMenuItem(
                             text = {
                                 Text(
                                     "Pick Lyrics",
-                                    color = Color.White.copy(alpha = 0.4f),
+                                    color = Color.White,
                                     fontFamily = CalSansFamily
                                 )
                             },
                             onClick = {
                                 showMenu = false
-                                // No-op until LyricsPicker is ported
+                                showLyricsPicker = true
                             },
-                            enabled = false,
                             leadingIcon = {
                                 Icon(
                                     CoralXIcons.MousePointerClick,
                                     contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.4f),
+                                    tint = Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -474,11 +474,23 @@ fun LyricsSheet(
                     }
                 }
                 lyric != null -> {
-                    CinematicLyricsContent(
-                        lyric = lyric!!,
-                        currentPositionMs = currentPositionMs,
-                        onSeek = onSeek
-                    )
+                    // ★ Use accompanist KaraokeLyricsView for word-synced lyrics
+                    //   (TTML, Enhanced LRC, YRC, KRC, Lyricify Syllable) — proper
+                    //   karaoke animation + multi-person + accompaniment lines.
+                    //   Fall back to our CinematicLyricsContent for plain/line-synced.
+                    if (lyric!!.hasWordSync || lyric!!.synced) {
+                        AccompanistLyricsContent(
+                            lyric = lyric!!,
+                            currentPositionMs = currentPositionMs,
+                            onSeek = onSeek
+                        )
+                    } else {
+                        CinematicLyricsContent(
+                            lyric = lyric!!,
+                            currentPositionMs = currentPositionMs,
+                            onSeek = onSeek
+                        )
+                    }
                 }
                 else -> {
                     Box(
@@ -631,7 +643,164 @@ fun LyricsSheet(
                 }
             )
         }
+
+        // ★ Lyrics Picker overlay — shown when user taps "Pick Lyrics"
+        //   from the 3-dot menu. User picks a candidate, we convert it
+        //   to a Lyric (applying the auto-offset so a +2s candidate syncs
+        //   perfectly to the song's actual timeline), cache it, and swap
+        //   into the active lyric state.
+        if (showLyricsPicker) {
+            LyricsPicker(
+                trackName = trackName,
+                artistName = artistName,
+                albumName = albumName,
+                durationMs = durationMs,
+                onDismiss = { showLyricsPicker = false },
+                onCandidateSelected = { candidate, offsetMs ->
+                    coroutineScope.launch {
+                        isLoading = true
+                        errorMessage = null
+                        // ★ Pass offsetMs to candidateToLyric — it shifts
+                        //   all line + word timestamps by this amount so
+                        //   the candidate's timeline fits the user's song.
+                        val lyricFromCandidate = repository.candidateToLyric(candidate, offsetMs)
+                        if (lyricFromCandidate != null) {
+                            // Cache the offset-applied lyric under the song's
+                            // actual name so it auto-loads next time.
+                            repository.cacheLyricsPublic(trackName, artistName, lyricFromCandidate)
+                            lyric = lyricFromCandidate
+                            onLyricsFetched?.invoke(lyricFromCandidate)
+                            showLyricsPicker = false
+                            // ★ Show a brief confirmation message with the offset applied
+                            errorMessage = if (offsetMs == 0L) {
+                                "✓ Perfect sync — no offset needed"
+                            } else {
+                                val offsetSec = offsetMs / 1000.0
+                                val sign = if (offsetMs > 0) "+" else ""
+                                "✓ Synced with ${sign}${"%.1f".format(offsetSec)}s offset"
+                            }
+                        } else {
+                            errorMessage = "Could not parse that candidate's lyrics"
+                        }
+                        isLoading = false
+                    }
+                }
+            )
+        }
     }
+}
+
+// ═══ Accompanist lyrics content (word-synced karaoke via accompanist-lyrics-ui) ═══
+
+/**
+ * ★ AccompanistLyricsContent — renders word-synced lyrics using accompanist's
+ *   KaraokeLyricsView. Used when the parsed Lyric has word sync OR is
+ *   line-synced (we let accompanist handle both — it gracefully degrades
+ *   to line-level rendering when there are no syllables).
+ *
+ * Conversion: our Lyric model → accompanist's SyncedLyrics model.
+ *   - LyricLine with hasWordSync → KaraokeLine.MainKaraokeLine (with syllables)
+ *   - LyricLine without hasWordSync → SyncedLine (line-level only)
+ *
+ * Why use accompanist instead of our CinematicLyricsContent:
+ *   - Proper karaoke animation (sweep + bounce + glow per syllable)
+ *   - Multi-person / duets (KaraokeAlignment.Start / End)
+ *   - Accompaniment (background) vocal lines
+ *   - Breathing dots during instrumental gaps
+ *   - Better performance (text measurement cached, off-main-thread)
+ */
+@Composable
+private fun AccompanistLyricsContent(
+    lyric: Lyric,
+    currentPositionMs: Long,
+    onSeek: (Long) -> Unit
+) {
+    // ★ Convert our Lyric model → accompanist's SyncedLyrics model
+    val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
+        remember(lyric) { lyric.toAccompanistSyncedLyrics() }
+
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView(
+        listState = listState,
+        lyrics = syncedLyrics,
+        currentPosition = { currentPositionMs.toInt() },
+        onLineClicked = { line -> onSeek(line.start.toLong()) },
+        onLinePressed = { /* no-op for now */ },
+        modifier = Modifier.fillMaxSize(),
+        textColor = Color.White,
+        normalLineTextStyle = androidx.compose.ui.text.TextStyle(
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = CalSansFamily
+        ),
+        accompanimentLineTextStyle = androidx.compose.ui.text.TextStyle(
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = CalSansFamily
+        ),
+        offset = 80.dp,
+        useBlurEffect = false  // blur is expensive on low-end devices
+    )
+}
+
+/**
+ * ★ Convert our [Lyric] model → accompanist's [SyncedLyrics] model.
+ *
+ * - LyricLine with hasWordSync + words → KaraokeLine.MainKaraokeLine
+ *   (with syllables derived from each WordTimestamp).
+ * - LyricLine without words → SyncedLine (line-level only).
+ *
+ * The end time of each line is the start time of the NEXT line (or
+ * start + 2000ms for the last line).
+ */
+private fun Lyric.toAccompanistSyncedLyrics(): com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics {
+    val accompanistLines = mutableListOf<com.mocharealm.accompanist.lyrics.core.model.ISyncedLine>()
+
+    lines.forEachIndexed { index, line ->
+        val startMs = line.timeMs.toInt().coerceAtLeast(0)
+        val endMs = (lines.getOrNull(index + 1)?.timeMs?.toInt() ?: (startMs + 2000))
+            .coerceAtLeast(startMs + 1)
+
+        if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
+            // Word-synced line → KaraokeLine.MainKaraokeLine with syllables
+            val syllables = line.words.map { word ->
+                com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable(
+                    content = word.text,
+                    start = word.startTime.toInt().coerceAtLeast(0),
+                    end = word.endTime.toInt().coerceAtLeast(word.startTime.toInt() + 1)
+                )
+            }
+            accompanistLines.add(
+                com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine(
+                    syllables = syllables,
+                    translation = null,
+                    alignment = com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment.Start,
+                    start = startMs,
+                    end = endMs,
+                    phonetic = null,
+                    accompanimentLines = null
+                )
+            )
+        } else {
+            // Line-synced only → SyncedLine (accompanist will render as plain line)
+            accompanistLines.add(
+                com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
+                    content = line.text.ifBlank { "♪" },
+                    translation = null,
+                    start = startMs,
+                    end = endMs
+                )
+            )
+        }
+    }
+
+    return com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(
+        lines = accompanistLines,
+        title = trackName ?: "",
+        id = "0",
+        artists = null
+    )
 }
 
 // ═══ Cinematic lyrics content with word-by-word karaoke ═════════════

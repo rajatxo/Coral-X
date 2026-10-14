@@ -209,17 +209,23 @@ fun Spiral2Player(
     }
 
     // ─── Lyrics state ─────────────────────────────────────────────
-    // Auto-fetch when song changes: imported .lrc → cached → network (LrcLib/NetEase/KuGou).
-    // The strip shows the current line; tap to open the full LyricsSheet page.
+    // ★ Lyrics source priority (top to bottom):
+    //   1. EMBEDDED in the audio file (via TagLib — TTML, ID3 SYLT/USLT, Vorbis LYRICS)
+    //      → No network needed, 100% offline, the user's own file's lyrics.
+    //   2. IMPORTED .lrc / pasted lyrics (user explicitly chose these via Import/Paste)
+    //   3. CACHED fetched lyrics (from previous network fetch — instant, offline)
+    //   4. NETWORK: LrcLib → KuGou → NetEase
     val lyricsRepository = remember { com.rajatxo.coral.data.lyrics.LyricsRepository(context) }
+    val embeddedReader = remember { com.rajatxo.coral.data.lyrics.EmbeddedLyricsReader(context) }
     var lyricData by remember { mutableStateOf<com.rajatxo.coral.data.lyrics.Lyric?>(null) }
     var isLyricsLoading by remember { mutableStateOf(false) }
     var showLyricsSheet by remember { mutableStateOf(false) }
 
-    // ★ AUTO-FETCH on song change (does NOT use getEmbeddedLyrics — that uses
-    //   MediaMetadataRetriever on the same URI ExoPlayer is playing, which on
-    //   many devices conflicts with the audio track and silences playback).
-    LaunchedEffect(song?.title, song?.artist) {
+    // ★ AUTO-FETCH on song change. Keyed on song?.uri (so switching songs
+    //   re-fetches) + song?.title + song?.artist (so title-only edits also
+    //   re-fetch). Uses TagLib for embedded — separate native handle from
+    //   ExoPlayer, so it's safe to call during playback (no silence bug).
+    LaunchedEffect(song?.id, song?.title, song?.artist) {
         val title = song?.title
         val artist = song?.artist
         if (title.isNullOrBlank() || artist.isNullOrBlank()) {
@@ -227,15 +233,45 @@ fun Spiral2Player(
             isLyricsLoading = false
             return@LaunchedEffect
         }
-        // ★ After the null-check above, title and artist are non-null.
-        //   Capture them in local vals so the smart-cast propagates into the
-        //   withContext lambdas below (Kotlin doesn't smart-cast song?.title
-        //   across lambda boundaries because song is a Compose state).
+        // ★ Capture non-null locals — Kotlin doesn't smart-cast Compose state
+        //   vals across withContext lambda boundaries.
         val safeTitle = title
         val safeArtist = artist
         val safeAlbum = song?.album
+        val safeArtUri = song?.albumArtUri
+        val safeSongUri = song?.uri
         isLyricsLoading = true
-        // 1. Try imported .lrc (highest priority — user explicitly chose these)
+
+        // 1. EMBEDDED lyrics via TagLib (PRIMARY source — user's own file)
+        //    TagLib reads ID3 SYLT/USLT, Vorbis LYRICS, M4A ©lyr — any format.
+        //    Returns raw text (could be plain, LRC, Enhanced LRC, or TTML).
+        //    The downstream parser handles all of these.
+        if (safeSongUri != null) {
+            val embeddedRaw = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                embeddedReader.readEmbeddedLyrics(safeSongUri)
+            }
+            if (!embeddedRaw.isNullOrBlank()) {
+                val parsedLines = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.rajatxo.coral.data.lyrics.LrcParser.parse(embeddedRaw)
+                }
+                if (parsedLines.isNotEmpty()) {
+                    val hasWordSync = parsedLines.any { it.hasWordSync }
+                    val hasTimestamps = parsedLines.any { it.timeMs >= 0 }
+                    lyricData = com.rajatxo.coral.data.lyrics.Lyric(
+                        synced = hasTimestamps,
+                        lines = parsedLines,
+                        source = com.rajatxo.coral.data.lyrics.LyricSource.EMBEDDED,
+                        trackName = safeTitle,
+                        artistName = safeArtist,
+                        hasWordSync = hasWordSync
+                    )
+                    isLyricsLoading = false
+                    return@LaunchedEffect
+                }
+            }
+        }
+
+        // 2. IMPORTED .lrc (user explicitly imported/pasted these — high priority)
         val imported = withContext(kotlinx.coroutines.Dispatchers.IO) {
             lyricsRepository.getImportedLrc(safeTitle, safeArtist)
         }
@@ -244,7 +280,7 @@ fun Spiral2Player(
             isLyricsLoading = false
             return@LaunchedEffect
         }
-        // 2. Try cached fetched lyrics (instant, offline)
+        // 3. CACHED fetched lyrics (instant, offline)
         val cached = withContext(kotlinx.coroutines.Dispatchers.IO) {
             lyricsRepository.getLyrics(safeTitle, safeArtist, safeAlbum, durationMs)
         }
@@ -253,7 +289,7 @@ fun Spiral2Player(
             isLyricsLoading = false
             return@LaunchedEffect
         }
-        // 3. Auto-fetch from network (LrcLib → KuGou → NetEase)
+        // 4. NETWORK fetch: LrcLib → KuGou → NetEase
         try {
             val fetched = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 lyricsRepository.fetchFromNetwork(safeTitle, safeArtist, safeAlbum, durationMs)

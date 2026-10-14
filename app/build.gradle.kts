@@ -138,4 +138,13 @@ dependencies {
     //    Compose Multiplatform 1.10.2 → maps to androidx.compose 1.10.4 on Android.
     //    Pulls in gaze-capsule (com.mocharealm.gaze:capsule:2.1.1-patch2) transitively.
     implementation("com.mocharealm.accompanist:lyrics-ui:1.0.18")
+
+    // ★ TagLib — JNI bindings for TagLib (C++ audio metadata library).
+    //    Reads embedded lyrics (LYRICS, USLT, UNSYNCEDLYRICS, ©LYR), artwork,
+    //    codec, bitrate, sample rate from MP3/M4A/FLAC/OGG/OPUS/WAV/AIFF/WMA/APE.
+    //    Apache 2.0 (declared in POM). Source: github.com/AmanRajAryan/AndroidTagLib.
+    //    Native libs: libtaglib_jni.so (arm64-v8a 1.6MB + armeabi-v7a 1MB).
+    //    Used as the PRIMARY lyrics source — reads embedded lyrics straight from
+    //    the audio file. No network needed for songs with embedded lyrics.
+    implementation("io.github.amanrajaryan:TagLib:1.0.2")
 }
