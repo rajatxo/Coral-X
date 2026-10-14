@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +51,10 @@ import kotlinx.coroutines.withContext
  * Ported from old Coral. Reads from PlaybackHistory.dailyPlays to show the
  * 6 most-played songs today. Each capsule's border color is extracted from
  * the album art of the songs inside it.
+ *
+ * ★ Each cover is independently clickable — tapping cover 1 opens song1's
+ *   TodaysTopCard, tapping cover 2 opens song2's TodaysTopCard. The capsule
+ *   background + border is not clickable itself (covers handle the taps).
  */
 @Composable
 fun TodaysTopSection(
@@ -116,7 +121,7 @@ fun TodaysTopSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 3 capsules
+        // 3 capsules — each has 2 independently-clickable covers
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -134,6 +139,8 @@ fun TodaysTopSection(
                 val bgBrush = Brush.horizontalGradient(
                     listOf(color1.copy(alpha = 0.25f), color2.copy(alpha = 0.25f))
                 )
+                // ★ NO clickable on the outer Box — each cover handles its own tap.
+                //   This fixes the bug where tapping cover 2 always opened song 1.
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -141,27 +148,24 @@ fun TodaysTopSection(
                         .clip(capsuleShape)
                         .background(bgBrush)
                         .border(2.5.dp, borderBrush, capsuleShape)
-                        .padding(6.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {
-                                (song1 ?: song2)?.let { onCapsuleClick(it) }
-                            }
-                        ),
+                        .padding(6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // ★ Cover 1 — independently clickable, opens song1's capsule
                         AlbumArtCircle(
                             artUri = song1?.albumArtUri,
-                            placeholderColor = color1
+                            placeholderColor = color1,
+                            onClick = { song1?.let { onCapsuleClick(it) } }
                         )
+                        // ★ Cover 2 — independently clickable, opens song2's capsule
                         AlbumArtCircle(
                             artUri = song2?.albumArtUri,
-                            placeholderColor = color2
+                            placeholderColor = color2,
+                            onClick = { song2?.let { onCapsuleClick(it) } }
                         )
                     }
                 }
@@ -173,7 +177,8 @@ fun TodaysTopSection(
 @Composable
 private fun AlbumArtCircle(
     artUri: Uri?,
-    placeholderColor: Color
+    placeholderColor: Color,
+    onClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     Box(
@@ -181,7 +186,11 @@ private fun AlbumArtCircle(
             .size(40.dp)
             .clip(CircleShape)
             .background(placeholderColor.copy(alpha = 0.7f))
-            .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape),
+            .border(2.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = false)
+            ) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         if (artUri != null) {
