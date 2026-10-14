@@ -1132,7 +1132,11 @@ private fun SweptLyricLine(
                                     this@drawWithContent.drawContent()
                                 }
                             } else {
-                                // Partial row — clip to sung character boundary
+                                // ★ Partial row — clip to sung character boundary
+                                //   PLUS add a soft feathered gradient at the edge
+                                //   for smooth transition (no hard line).
+                                //   BitChord does this: clipRect for the main clip,
+                                //   then a horizontalGradient with DstIn at the boundary.
                                 val sungWidth = try {
                                     val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
                                     measured.getBoundingBox(charOffset).right - rowLeft
@@ -1141,13 +1145,34 @@ private fun SweptLyricLine(
                                         (rowEnd - rowStart).coerceAtLeast(1)
                                     (rowRight - rowLeft) * rowFraction
                                 }
-                                clipRect(
-                                    left = rowLeft,
-                                    top = rowTop,
-                                    right = (rowLeft + sungWidth).coerceAtMost(rowRight),
-                                    bottom = rowBottom
-                                ) {
+                                val cutRight = (rowLeft + sungWidth).coerceAtMost(rowRight)
+                                // ★ FEATHER: 20px soft edge at the sweep boundary.
+                                //   The gradient goes from opaque (sung) to transparent
+                                //   (unsung) over 20px — this is what makes it look like
+                                //   a smooth glow instead of a hard line.
+                                val featherPx = 60f  // wider = softer, but don't exceed row width
+                                val featherStart = (cutRight - featherPx).coerceAtLeast(rowLeft)
+                                // Main clip: everything up to the feather start
+                                clipRect(left = rowLeft, top = rowTop, right = featherStart, bottom = rowBottom) {
                                     this@drawWithContent.drawContent()
+                                }
+                                // Feather zone: soft gradient from featherStart to cutRight
+                                clipRect(left = featherStart, top = rowTop, right = rowRight, bottom = rowBottom) {
+                                    this@drawWithContent.drawContent()
+                                    // Overlay a gradient mask that fades out
+                                    drawRect(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(Color.Transparent, Color.Black),
+                                            startX = featherStart,
+                                            endX = cutRight
+                                        ),
+                                        topLeft = androidx.compose.ui.geometry.Offset(featherStart, rowTop),
+                                        size = androidx.compose.ui.geometry.Size(
+                                            cutRight - featherStart,
+                                            rowBottom - rowTop
+                                        ),
+                                        blendMode = BlendMode.DstIn
+                                    )
                                 }
                             }
                         }
