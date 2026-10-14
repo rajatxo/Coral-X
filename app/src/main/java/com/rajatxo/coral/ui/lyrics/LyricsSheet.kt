@@ -132,6 +132,20 @@ fun LyricsSheet(
     // Menu + dialog state
     var showMenu by remember { mutableStateOf(false) }
 
+    // ★ Lyrics font size — persisted in SharedPreferences. Range: 18-36sp.
+    //   Default 26sp (matches old Coral). User can change via 3-dot menu.
+    val prefs = remember { context.getSharedPreferences("coral_prefs", android.content.Context.MODE_PRIVATE) }
+    var lyricsFontSize by remember {
+        mutableStateOf(prefs.getFloat("lyrics_font_size_sp", 26f))
+    }
+    fun setLyricsFontSize(size: Float) {
+        lyricsFontSize = size
+        prefs.edit().putFloat("lyrics_font_size_sp", size).apply()
+    }
+
+    // ★ Font size dialog state
+    var showFontSizeDialog by remember { mutableStateOf(false) }
+
     // ★ Lyrics picker overlay state — when true, opens the LyricsPicker
     //   full-screen overlay showing all LrcLib candidates for the song.
     //   User can pick the candidate whose duration matches their local file.
@@ -455,6 +469,28 @@ fun LyricsSheet(
                                 )
                             }
                         )
+                        // ★ Font Size — opens a slider to adjust lyrics text size
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Text Size",
+                                    color = Color.White,
+                                    fontFamily = CalSansFamily
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                showFontSizeDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    CoralXIcons.Gear,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        )
                     }
                 }
             }
@@ -490,6 +526,7 @@ fun LyricsSheet(
                         SweptLyricsContent(
                             lyric = lyric!!,
                             currentPositionMs = currentPositionMs,
+                            fontSizeSp = lyricsFontSize,
                             onSeek = onSeek
                         )
                     } else {
@@ -652,6 +689,71 @@ fun LyricsSheet(
             )
         }
 
+        // ★ Font size dialog — slider to adjust lyrics text size (18-40sp)
+        if (showFontSizeDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showFontSizeDialog = false },
+                containerColor = Color(0xFF1F1F1F),
+                titleContentColor = Color.White,
+                title = {
+                    Text(
+                        "Text Size",
+                        color = Color.White,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            "Adjust the lyrics text size",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 12.sp,
+                            fontFamily = CalSansFamily
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("A", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontFamily = CalSansFamily)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            androidx.compose.material3.Slider(
+                                value = lyricsFontSize,
+                                onValueChange = { setLyricsFontSize(it) },
+                                valueRange = 18f..40f,
+                                steps = 21,
+                                modifier = Modifier.weight(1f),
+                                colors = androidx.compose.material3.SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color.White,
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("A", color = Color.White, fontSize = 20.sp, fontFamily = CalSansFamily)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "${lyricsFontSize.toInt()}sp",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 13.sp,
+                            fontFamily = CalSansFamily,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = { showFontSizeDialog = false }
+                    ) {
+                        Text("Done", color = Color.White, fontFamily = CalSansFamily)
+                    }
+                }
+            )
+        }
+
         // ★ Lyrics Picker overlay — shown when user taps "Pick Lyrics"
         //   from the 3-dot menu. User picks a candidate, we convert it
         //   to a Lyric (applying the auto-offset so a +2s candidate syncs
@@ -723,6 +825,7 @@ fun LyricsSheet(
 private fun SweptLyricsContent(
     lyric: Lyric,
     currentPositionMs: Long,
+    fontSizeSp: Float = 26f,
     onSeek: (Long) -> Unit
 ) {
     if (!lyric.synced || lyric.lines.isEmpty()) {
@@ -770,6 +873,7 @@ private fun SweptLyricsContent(
                 isActive = isActive,
                 distanceFromActive = distance,
                 isBefore = isBefore,
+                fontSizeSp = fontSizeSp,
                 onSeek = onSeek
             )
         }
@@ -847,6 +951,7 @@ private fun SweptLyricLine(
     isActive: Boolean,
     distanceFromActive: Int,
     isBefore: Boolean,
+    fontSizeSp: Float = 26f,
     onSeek: (Long) -> Unit
 ) {
     // Progressive opacity by distance from active line
@@ -871,7 +976,7 @@ private fun SweptLyricLine(
         label = "lineScale"
     )
 
-    val fontSize = 24.sp
+    val fontSize = fontSizeSp.sp
     val fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold
 
     // ★ Determine if this line should show the sweep animation.
@@ -881,15 +986,10 @@ private fun SweptLyricLine(
     val showSweep = line.hasWordSync && line.words != null && line.words.isNotEmpty()
 
     // ★ Read the clock ONLY when this line is actively animating (active + word-synced).
-    //   Outside the animation window, the line is static (fully dim or fully
-    //   bright) and doesn't need to read the clock → doesn't redraw per frame.
     val isAnimating = isActive && showSweep
     val currentPos = if (isAnimating) clockMs.value else 0L
 
     // ★ Compute the sung fraction (0..1) for the sweep clip.
-    //   - Word-synced + active: compute from clock (sweep)
-    //   - Word-synced + not active: 1.0 if before (already sung), 0.0 if after
-    //   - Line-synced: 0 (no sweep — highlight via dim/bright only)
     val sungFraction = when {
         !showSweep -> 0f  // Line-synced: no sweep
         isAnimating -> computeSungFraction(line, currentPos)
@@ -901,14 +1001,10 @@ private fun SweptLyricLine(
     val text = line.text.ifBlank { "♪" }
 
     // ★ Layout result captured from the dim Text — used to compute the sweep
-    //   clip rectangle based on character positions
+    //   clip rectangle based on character positions PER LINE (handles wrapping).
     var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     // ★ Determine if the bright overlay should be shown at all.
-    //   - Word-synced: show if sungFraction > 0 (with sweep clip if < 1)
-    //   - Line-synced + active: show full bright (highlight)
-    //   - Line-synced + isBefore: show full bright (already sung)
-    //   - Line-synced + future: don't show bright (dim only)
     val showBright = when {
         showSweep -> sungFraction > 0f
         isActive -> true
@@ -960,23 +1056,64 @@ private fun SweptLyricLine(
                     .then(
                         if (showSweep && sungFraction < 1f) {
                             // Word-synced + partially sung: apply sweep clip
+                            // ★ Uses TextLayoutResult to clip PER LINE — so a
+                            //   line that wraps to 2 visual rows gets the sweep
+                            //   applied to each row independently (row 1 fills
+                            //   before row 2 starts, not both at once).
                             Modifier
                                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                                 .drawWithContent {
                                     drawContent()
                                     val measured = layoutResult
                                     if (measured != null && sungFraction < 1f) {
-                                        drawRect(
-                                            brush = Brush.horizontalGradient(
-                                                colorStops = arrayOf(
-                                                    0f to Color.Black,
-                                                    sungFraction to Color.Black,
-                                                    (sungFraction + 0.05f).coerceAtMost(1f) to Color.Transparent,
-                                                    1f to Color.Transparent
+                                        // ★ Compute the sung character offset
+                                        val totalChars = text.length
+                                        val sungCharOffset = (totalChars * sungFraction).toInt()
+                                        // ★ For each visual line (row) in the wrapped text,
+                                        //   determine if it's fully sung, partially sung, or not sung.
+                                        //   Then clip the bright overlay accordingly.
+                                        val lineCount = measured.lineCount
+                                        for (rowIndex in 0 until lineCount) {
+                                            val lineStart = measured.getLineStart(rowIndex)
+                                            val lineEnd = measured.getLineEnd(rowIndex)
+                                            val lineLeft = measured.getLineLeft(rowIndex)
+                                            val lineRight = measured.getLineRight(rowIndex)
+                                            val lineTop = measured.getLineTop(rowIndex)
+                                            val lineBottom = measured.getLineBottom(rowIndex)
+                                            val lineWidth = lineRight - lineLeft
+                                            if (sungCharOffset >= lineEnd) {
+                                                // This entire row is sung — keep it fully bright (no clip)
+                                            } else if (sungCharOffset <= lineStart) {
+                                                // This entire row is NOT sung — clip it all out
+                                                drawRect(
+                                                    color = Color.Transparent,
+                                                    topLeft = androidx.compose.ui.geometry.Offset(lineLeft, lineTop),
+                                                    size = androidx.compose.ui.geometry.Size(lineWidth, lineBottom - lineTop),
+                                                    blendMode = BlendMode.DstIn
                                                 )
-                                            ),
-                                            blendMode = BlendMode.DstIn
-                                        )
+                                                // Actually we need to ERASE this row's bright pixels.
+                                                // DstIn with transparent = erase. But we need to erase
+                                                // only the bright overlay in this row area.
+                                                // Alternative: draw a transparent rect with DstOut
+                                                drawRect(
+                                                    color = Color.Black,
+                                                    topLeft = androidx.compose.ui.geometry.Offset(0f, lineTop),
+                                                    size = androidx.compose.ui.geometry.Size(size.width, lineBottom - lineTop),
+                                                    blendMode = BlendMode.DstOut
+                                                )
+                                            } else {
+                                                // Partially sung row — clip to sung portion
+                                                val rowFraction = (sungCharOffset - lineStart).toFloat() / (lineEnd - lineStart).coerceAtLeast(1)
+                                                // Erase the unsung part of this row
+                                                val sungWidth = lineWidth * rowFraction
+                                                drawRect(
+                                                    color = Color.Black,
+                                                    topLeft = androidx.compose.ui.geometry.Offset(lineLeft + sungWidth, lineTop),
+                                                    size = androidx.compose.ui.geometry.Size(lineWidth - sungWidth, lineBottom - lineTop),
+                                                    blendMode = BlendMode.DstOut
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                         } else {
