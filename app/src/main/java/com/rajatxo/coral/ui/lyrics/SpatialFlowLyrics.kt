@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -123,33 +124,78 @@ fun SpatialFlowLyrics(
         }
     }
 
-    // ★ Auto-scroll
+    // ★ Auto-scroll — center active line (SpatialFlow approach: spring scroll)
     LaunchedEffect(activeIndex) {
-        if (activeIndex >= 0) {
-            val target = (activeIndex - 3).coerceAtLeast(0)
-            listState.animateScrollToItem(target)
+        if (activeIndex >= 0 && !listState.isScrollInProgress) {
+            // Center the active line in the viewport
+            val visibleItem = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.index == activeIndex }
+            val viewportHeight = listState.layoutInfo.viewportEndOffset -
+                listState.layoutInfo.viewportStartOffset
+            if (visibleItem != null && viewportHeight > 0) {
+                val targetCenterOffset = visibleItem.offset -
+                    (viewportHeight / 2 - visibleItem.size / 2)
+                if (targetCenterOffset != 0) {
+                    listState.animateScrollToItem(
+                        index = activeIndex,
+                        scrollOffset = -(viewportHeight / 2 - visibleItem.size / 2)
+                    )
+                }
+            } else {
+                listState.animateScrollToItem(activeIndex)
+            }
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+    // ★ Edge-faded container — top + bottom vertical gradient fade
+    //   Same as SpatialFlow: 20% of height fades at top + bottom
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                val edgePx = size.height * 0.20f
+                // Top fade: transparent → opaque
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black),
+                        startY = 0f,
+                        endY = edgePx
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+                // Bottom fade: opaque → transparent
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Black, Color.Transparent),
+                        startY = size.height - edgePx,
+                        endY = size.height
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
     ) {
-        items(lines.size) { index ->
-            val line = lines[index]
-            val isActive = index == activeIndex
-            val isPast = index < activeIndex
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 100.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            items(lines.size) { index ->
+                val line = lines[index]
+                val isActive = index == activeIndex
+                val isPast = index < activeIndex
 
-            SpatialFlowLyricLine(
-                line = line,
-                isActive = isActive,
-                isPast = isPast,
-                currentPositionProvider = { animatedPosition.toInt() },
-                fontSizeSp = fontSizeSp,
-                onSeek = { onSeek(line.timeMs) }
-            )
+                SpatialFlowLyricLine(
+                    line = line,
+                    isActive = isActive,
+                    isPast = isPast,
+                    currentPositionProvider = { animatedPosition.toInt() },
+                    fontSizeSp = fontSizeSp,
+                    onSeek = { onSeek(line.timeMs) }
+                )
+            }
         }
     }
 }
