@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -526,6 +527,7 @@ fun LyricsSheet(
                         SweptLyricsContent(
                             lyric = lyric!!,
                             currentPositionMs = currentPositionMs,
+                            isPlaying = isPlaying,
                             fontSizeSp = lyricsFontSize,
                             onSeek = onSeek
                         )
@@ -825,6 +827,7 @@ fun LyricsSheet(
 private fun SweptLyricsContent(
     lyric: Lyric,
     currentPositionMs: Long,
+    isPlaying: Boolean,
     fontSizeSp: Float = 26f,
     onSeek: (Long) -> Unit
 ) {
@@ -842,7 +845,11 @@ private fun SweptLyricsContent(
     //   updates at 60fps. The player reports position every ~500ms; without
     //   interpolation, the sweep "jumps" every 500ms → not smooth.
     //   Keyed on lyric so the clock resets when the song changes.
-    val clockMs = rememberFrameClock(lyric, currentPositionMs)
+    //   ★ PAUSE FIX: when !isPlaying, the clock returns the last reported
+    //     position WITHOUT advancing. This prevents the sweep from animating
+    //     when the song is paused (the bug where opening the lyrics page
+    //     while paused starts the animation).
+    val clockMs = rememberFrameClock(lyric, currentPositionMs, isPlaying)
 
     val listState = rememberLazyListState()
 
@@ -889,15 +896,23 @@ private fun SweptLyricsContent(
  * playback position. Read inside draw lambdas so only the draw phase re-runs
  * each frame (not composition).
  *
- * BitChord's LyricClock is more sophisticated (steers rather than sets, learns
- * playback rate, handles seeks). This is a simpler version: linear
- * interpolation between the last two readings. Good enough for smoothness.
+ * ★ PAUSE HANDLING: when [isPlaying] is false, the clock does NOT advance —
+ *   it returns the last reported position. This prevents the sweep from
+ *   animating when the song is paused (the bug where opening the lyrics page
+ *   while paused starts the animation because the clock keeps running).
+ *
+ * Inspired by BitChord's LyricClock approach (steered interpolation), but
+ * simplified to linear interpolation. Good enough for smoothness.
  */
 @Composable
-private fun rememberFrameClock(lyric: Lyric, currentPositionMs: Long): androidx.compose.runtime.State<Long> {
+private fun rememberFrameClock(
+    lyric: Lyric,
+    currentPositionMs: Long,
+    isPlaying: Boolean
+): androidx.compose.runtime.State<Long> {
     // ★ Anchor: the last reported position + when it was reported.
     //   Stored in mutableStateOf so the produceState block can read the
-    //   latest value via snapshotFlow.
+    //   latest value.
     val anchor = remember(lyric) {
         mutableStateOf(currentPositionMs to System.nanoTime())
     }
@@ -906,14 +921,19 @@ private fun rememberFrameClock(lyric: Lyric, currentPositionMs: Long): androidx.
         anchor.value = currentPositionMs to System.nanoTime()
     }
 
-    // ★ Frame-by-frame interpolation. withFrameNanos fires every vsync (~16ms).
-    //   We compute: displayed = lastReported + (now - lastReportedAt)
-    //   This advances the position by exactly the elapsed wall-clock time.
-    //   Reading anchor.value inside the lambda keeps it subscribed to changes.
+    // ★ When paused: return the last reported position WITHOUT advancing.
+    //   The produceState loop simply doesn't run — the state stays at the
+    //   last value. This is the key fix for "animation starts when paused".
     return androidx.compose.runtime.produceState(
         initialValue = currentPositionMs,
-        lyric
+        lyric, isPlaying
     ) {
+        if (!isPlaying) {
+            // Paused — just hold the current position, don't advance
+            value = currentPositionMs
+            return@produceState
+        }
+        // Playing — advance the clock every frame
         while (true) {
             withFrameNanos { _ ->
                 val (reportedMs, reportedAtNanos) = anchor.value
@@ -1055,63 +1075,65 @@ private fun SweptLyricLine(
                     .fillMaxWidth()
                     .then(
                         if (showSweep && sungFraction < 1f) {
-                            // Word-synced + partially sung: apply sweep clip
-                            // ★ Uses TextLayoutResult to clip PER LINE — so a
-                            //   line that wraps to 2 visual rows gets the sweep
-                            //   applied to each row independently (row 1 fills
-                            //   before row 2 starts, not both at once).
+                            // ★ Word-synced + partially sung: apply sweep clip.
+                            //   Uses clipRect per visual line (GPU-accelerated, smooth)
+                            //   instead of drawRect with BlendMode.DstOut (creates
+                            //   a new layer per frame = slow + janky).
+                            //   For each visual row in the wrapped text, clipRect
+                            //   to the sung portion. Row 1 fills before row 2 starts.
                             Modifier
                                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                                 .drawWithContent {
-                                    drawContent()
-                                    val measured = layoutResult
-                                    if (measured != null && sungFraction < 1f) {
-                                        // ★ Compute the sung character offset
-                                        val totalChars = text.length
-                                        val sungCharOffset = (totalChars * sungFraction).toInt()
-                                        // ★ For each visual line (row) in the wrapped text,
-                                        //   determine if it's fully sung, partially sung, or not sung.
-                                        //   Then clip the bright overlay accordingly.
-                                        val lineCount = measured.lineCount
-                                        for (rowIndex in 0 until lineCount) {
-                                            val lineStart = measured.getLineStart(rowIndex)
-                                            val lineEnd = measured.getLineEnd(rowIndex)
-                                            val lineLeft = measured.getLineLeft(rowIndex)
-                                            val lineRight = measured.getLineRight(rowIndex)
-                                            val lineTop = measured.getLineTop(rowIndex)
-                                            val lineBottom = measured.getLineBottom(rowIndex)
-                                            val lineWidth = lineRight - lineLeft
-                                            if (sungCharOffset >= lineEnd) {
-                                                // This entire row is sung — keep it fully bright (no clip)
-                                            } else if (sungCharOffset <= lineStart) {
-                                                // This entire row is NOT sung — clip it all out
-                                                drawRect(
-                                                    color = Color.Transparent,
-                                                    topLeft = androidx.compose.ui.geometry.Offset(lineLeft, lineTop),
-                                                    size = androidx.compose.ui.geometry.Size(lineWidth, lineBottom - lineTop),
-                                                    blendMode = BlendMode.DstIn
-                                                )
-                                                // Actually we need to ERASE this row's bright pixels.
-                                                // DstIn with transparent = erase. But we need to erase
-                                                // only the bright overlay in this row area.
-                                                // Alternative: draw a transparent rect with DstOut
-                                                drawRect(
-                                                    color = Color.Black,
-                                                    topLeft = androidx.compose.ui.geometry.Offset(0f, lineTop),
-                                                    size = androidx.compose.ui.geometry.Size(size.width, lineBottom - lineTop),
-                                                    blendMode = BlendMode.DstOut
-                                                )
-                                            } else {
-                                                // Partially sung row — clip to sung portion
-                                                val rowFraction = (sungCharOffset - lineStart).toFloat() / (lineEnd - lineStart).coerceAtLeast(1)
-                                                // Erase the unsung part of this row
-                                                val sungWidth = lineWidth * rowFraction
-                                                drawRect(
-                                                    color = Color.Black,
-                                                    topLeft = androidx.compose.ui.geometry.Offset(lineLeft + sungWidth, lineTop),
-                                                    size = androidx.compose.ui.geometry.Size(lineWidth - sungWidth, lineBottom - lineTop),
-                                                    blendMode = BlendMode.DstOut
-                                                )
+                                    val measured = layoutResult ?: return@drawWithContent
+                                    val totalChars = text.length
+                                    // ★ sungChars as FLOAT for sub-character precision.
+                                    //   E.g. 12.5 = halfway through character 12.
+                                    //   This gives smooth per-character sweep.
+                                    val sungChars = totalChars * sungFraction
+
+                                    for (rowIndex in 0 until measured.lineCount) {
+                                        val rowStart = measured.getLineStart(rowIndex)
+                                        val rowEnd = measured.getLineEnd(rowIndex, visibleEnd = true)
+                                        if (sungChars <= rowStart) {
+                                            // This entire row is NOT sung — skip it (don't draw)
+                                            continue
+                                        }
+                                        val rowLeft = measured.getLineLeft(rowIndex)
+                                        val rowRight = measured.getLineRight(rowIndex)
+                                        val rowTop = measured.getLineTop(rowIndex)
+                                        val rowBottom = measured.getLineBottom(rowIndex)
+                                        val rowWidth = rowRight - rowLeft
+
+                                        if (sungChars >= rowEnd) {
+                                            // This entire row IS sung — clip to full row width
+                                            clipRect(
+                                                left = rowLeft,
+                                                top = rowTop,
+                                                right = rowRight,
+                                                bottom = rowBottom
+                                            ) {
+                                                this@drawWithContent.drawContent()
+                                            }
+                                        } else {
+                                            // Partially sung row — clip to sung portion
+                                            // ★ Use getHorizontalOffset for exact character boundary
+                                            //   (sub-character precision for smooth sweep)
+                                            val sungWidth = try {
+                                                measured.getHorizontalOffset(
+                                                    rowIndex, sungChars.toInt().coerceIn(rowStart, rowEnd)
+                                                ) - rowLeft
+                                            } catch (_: Exception) {
+                                                // Fallback: proportional width
+                                                val rowFraction = (sungChars - rowStart) / (rowEnd - rowStart).coerceAtLeast(1)
+                                                rowWidth * rowFraction
+                                            }
+                                            clipRect(
+                                                left = rowLeft,
+                                                top = rowTop,
+                                                right = (rowLeft + sungWidth).coerceAtMost(rowRight),
+                                                bottom = rowBottom
+                                            ) {
+                                                this@drawWithContent.drawContent()
                                             }
                                         }
                                     }
