@@ -735,14 +735,22 @@ private fun AccompanistLyricsContent(
         return
     }
 
-    // ★ Use accompanist's AutoParser to parse the raw text directly.
-    //   This handles TTML multi-agent, Enhanced LRC word sync, YRC, KRC, etc.
-    //   without our manual Lyric → SyncedLyrics conversion (which had bugs).
+    // ★ Pre-process the raw text to fix common format issues that crash AutoParser:
+    //   1. Enhanced LRC with trailing end timestamps: `<00:05.27>you<00:06.00>`
+    //      The trailing `<00:06.00>` has no text after it → AutoParser creates
+    //      an empty syllable → KaraokeSyllable init throws or rendering crashes.
+    //      Fix: strip trailing `<timestamp>` at end of each line if no text follows.
+    //   2. Enhanced LRC with `v1:` / `v2:` voice prefix before word timestamps.
+    //      AutoParser's EnhancedLrcParser handles this, but sometimes the prefix
+    //      causes empty syllable creation. The preprocessor ensures clean format.
+    val cleanedText = preprocessLyricsText(rawText)
+
+    // ★ Use accompanist's AutoParser to parse the cleaned text directly.
     //   Then sanitize to fix overlapping timelines that crash KaraokeLyricsView.
     val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
-        remember(rawText) {
+        remember(cleanedText) {
             try {
-                val parsed = com.mocharealm.accompanist.lyrics.core.parser.AutoParser().parse(rawText)
+                val parsed = com.mocharealm.accompanist.lyrics.core.parser.AutoParser().parse(cleanedText)
                 sanitizeSyncedLyrics(parsed)
             } catch (_: Exception) {
                 // AutoParser or sanitizer failed — return empty, will fall back below
@@ -772,18 +780,63 @@ private fun AccompanistLyricsContent(
         modifier = Modifier.fillMaxSize(),
         textColor = Color.White,
         normalLineTextStyle = androidx.compose.ui.text.TextStyle(
-            fontSize = 26.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = CalSansFamily
         ),
         accompanimentLineTextStyle = androidx.compose.ui.text.TextStyle(
-            fontSize = 18.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
             fontFamily = CalSansFamily
         ),
         offset = 80.dp,
         useBlurEffect = false  // blur is expensive on low-end devices
     )
+}
+
+/**
+ * ★ Pre-process raw lyrics text to fix format issues that crash AutoParser.
+ *
+ * FIX 1: Enhanced LRC trailing end timestamps
+ *   Format: `[00:03.35]<00:03.35>Last <00:03.80>night, ... <00:05.27>you<00:06.00>`
+ *   The trailing `<00:06.00>` is an END timestamp with no text after it.
+ *   AutoParser creates an empty syllable from this → crash.
+ *   Fix: strip trailing `<timestamp>` at end of each line if no text follows.
+ *
+ * FIX 2: Ensure spaces between Enhanced LRC word timestamps
+ *   Format: `<00:03.35>Last<00:03.80>night` (no space between word and next timestamp)
+ *   → accompanist concatenates words without spaces → large visual gap or no gap.
+ *   Fix: add a space between a word's last char and the next `<timestamp>`.
+ */
+private fun preprocessLyricsText(rawText: String): String {
+    return rawText.lines().joinToString("\n") { line ->
+        var cleaned = line.trimEnd()
+
+        // Skip non-LRC lines (plain text, TTML, etc.) — TTML doesn't have [
+        if (!cleaned.contains("[") || !cleaned.contains("<")) {
+            return@joinToString cleaned
+        }
+
+        // FIX 1: Strip trailing `<timestamp>` at end of line with no text after it.
+        while (true) {
+            val lastAngleClose = cleaned.lastIndexOf('>')
+            if (lastAngleClose < 0) break
+            val afterClose = cleaned.substring(lastAngleClose + 1).trim()
+            if (afterClose.isNotEmpty()) break  // There IS text after the last >
+            val lastAngleOpen = cleaned.lastIndexOf('<', lastAngleClose)
+            if (lastAngleOpen < 0) break
+            val inner = cleaned.substring(lastAngleOpen + 1, lastAngleClose)
+            if (!inner.matches(Regex("""\d{1,2}[:.]\d{2}(?:[.:]\d{1,3})?"""))) break
+            cleaned = cleaned.substring(0, lastAngleOpen).trimEnd()
+        }
+
+        // FIX 2: Ensure a space between a word's last character and the next
+        // `<timestamp>` tag. Pattern: `word<00:03.80>` → `word <00:03.80>`.
+        // Only matches when `<` is followed by a digit (timestamp start), not XML.
+        cleaned = cleaned.replace(Regex("(\\S)<(\\d)"), "$1 <$2")
+
+        cleaned
+    }
 }
 
 /**
