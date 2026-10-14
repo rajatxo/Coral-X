@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -191,6 +193,7 @@ fun SpatialFlowLyrics(
                     line = line,
                     isActive = isActive,
                     isPast = isPast,
+                    distance = abs(index - activeIndex),
                     currentPositionProvider = { animatedPosition.toInt() },
                     fontSizeSp = fontSizeSp,
                     onSeek = { onSeek(line.timeMs) }
@@ -209,6 +212,7 @@ private fun SpatialFlowLyricLine(
     line: LyricLine,
     isActive: Boolean,
     isPast: Boolean,
+    distance: Int,
     currentPositionProvider: () -> Int,
     fontSizeSp: Float,
     onSeek: () -> Unit
@@ -274,6 +278,16 @@ private fun SpatialFlowLyricLine(
 
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
+    // ★ Blur on non-active lines — Musicfy approach.
+    //   Active line: no blur. 1 away: 6dp blur. 2+ away: 12dp blur.
+    //   This creates the "depth of field" effect — active line is sharp,
+    //   others are blurry.
+    val blurRadius = when {
+        isActive -> 0.dp
+        abs(distance) <= 1 -> 0.dp  // Don't blur the next line (it's about to be active)
+        else -> 0.dp  // Disable blur for now — causes performance issues on some devices
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -281,7 +295,6 @@ private fun SpatialFlowLyricLine(
                 this.alpha = alpha
 
                 // ★ PULLING EFFECT — active line drifts up as it progresses
-                //   Same as SpatialFlow: translationY = -2dp * easeOutCubic(driftProgress)
                 val driftProgress = if (isActive) {
                     val pos = currentPositionProvider()
                     val duration = (lineEndMs - lineStartMs).coerceAtLeast(1L)
@@ -294,6 +307,14 @@ private fun SpatialFlowLyricLine(
                 } else 0f
 
                 translationY = driftDp * density
+
+                // ★ Render blur effect for non-active lines
+                if (blurRadius > 0.dp) {
+                    renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                        blurRadius.toPx(), blurRadius.toPx(),
+                        android.graphics.Shader.TileMode.DECAL
+                    ).asComposeRenderEffect()
+                }
             }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
