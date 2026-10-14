@@ -231,7 +231,8 @@ class LyricsRepository(private val context: Context) {
             source = LyricSource.MANUAL,
             trackName = track,
             artistName = artist,
-            hasWordSync = hasWordSync
+            hasWordSync = hasWordSync,
+            rawText = lrcText
         )
         val importedFile = File(cacheDir, "${cacheKey(track, artist)}.imported.json")
         writeCache(importedFile, lyric)
@@ -411,7 +412,8 @@ class LyricsRepository(private val context: Context) {
             source = LyricSource.NETWORK,
             trackName = candidate.trackName,
             artistName = candidate.artistName,
-            hasWordSync = finalLines.any { it.hasWordSync }
+            hasWordSync = finalLines.any { it.hasWordSync },
+            rawText = text  // preserve the original LRC text for accompanist AutoParser
         )
     }
 
@@ -713,7 +715,8 @@ class LyricsRepository(private val context: Context) {
             source = LyricSource.NETWORK,
             trackName = candidate.trackName,
             artistName = candidate.artistName,
-            hasWordSync = lines.any { it.hasWordSync }
+            hasWordSync = lines.any { it.hasWordSync },
+            rawText = text
         )
     }
 
@@ -784,7 +787,8 @@ class LyricsRepository(private val context: Context) {
                         source = LyricSource.NETWORK,
                         trackName = track,
                         artistName = artist,
-                        hasWordSync = lines.any { it.hasWordSync }
+                        hasWordSync = lines.any { it.hasWordSync },
+                        rawText = synced
                     )
                 }
             }
@@ -846,7 +850,8 @@ class LyricsRepository(private val context: Context) {
                         source = LyricSource.NETWORK,
                         trackName = track,
                         artistName = artist,
-                        hasWordSync = lines.any { it.hasWordSync }
+                        hasWordSync = lines.any { it.hasWordSync },
+                        rawText = lrcText
                     )
                 }
             }
@@ -883,6 +888,11 @@ class LyricsRepository(private val context: Context) {
             val plain = obj["plain"]?.jsonPrimitive?.contentOrNull
             val trackName = obj["trackName"]?.jsonPrimitive?.contentOrNull
             val artistName = obj["artistName"]?.jsonPrimitive?.contentOrNull
+            // ★ rawText — preserves the original TTML / Enhanced LRC / YRC / KRC
+            //   text so we can re-parse with accompanist AutoParser for proper
+            //   word-by-word + multi-person rendering. Falls back to lrc/plain
+            //   if not stored (old cache entries).
+            val rawText = obj["rawText"]?.jsonPrimitive?.contentOrNull ?: lrc ?: plain
 
             if (!lrc.isNullOrBlank()) {
                 val lines = LrcParser.parse(lrc)
@@ -894,7 +904,8 @@ class LyricsRepository(private val context: Context) {
                         source = LyricSource.CACHE,
                         trackName = trackName,
                         artistName = artistName,
-                        hasWordSync = hasWordSync
+                        hasWordSync = hasWordSync,
+                        rawText = rawText
                     )
                 }
             }
@@ -908,7 +919,8 @@ class LyricsRepository(private val context: Context) {
                         source = LyricSource.CACHE,
                         trackName = trackName,
                         artistName = artistName,
-                        hasWordSync = false
+                        hasWordSync = false,
+                        rawText = rawText
                     )
                 }
             }
@@ -920,27 +932,34 @@ class LyricsRepository(private val context: Context) {
 
     private fun writeCache(file: File, lyric: Lyric) {
         try {
-            // If lines have word sync, write as Enhanced LRC (preserve word tags)
-            val lrcText = if (lyric.synced) {
-                lyric.lines.joinToString("\n") { line ->
-                    if (line.hasWordSync && line.words != null) {
-                        // Enhanced LRC: [mm:ss.xx]<mm:ss.xx>word <mm:ss.xx>word
-                        val wordTags = line.words.joinToString("") { word ->
-                            "<${formatTime(word.startTime)}>${word.text} "
+            // ★ If we have the original rawText (TTML, Enhanced LRC, YRC, KRC),
+            //   store that — it preserves word-level timing + multi-person
+            //   structure that our LrcParser flattens. Without this, cached
+            //   TTML lyrics would lose their word sync on reload.
+            val rawText = lyric.rawText ?: run {
+                // No raw text — regenerate from lines (loses TTML/Enhanced LRC
+                // word sync, but at least preserves line-level timestamps)
+                if (lyric.synced) {
+                    lyric.lines.joinToString("\n") { line ->
+                        if (line.hasWordSync && line.words != null) {
+                            val wordTags = line.words.joinToString("") { word ->
+                                "<${formatTime(word.startTime)}>${word.text} "
+                            }
+                            "[${formatTime(line.timeMs)}]$wordTags"
+                        } else {
+                            "[${formatTime(line.timeMs)}]${line.text}"
                         }
-                        "[${formatTime(line.timeMs)}]$wordTags"
-                    } else {
-                        "[${formatTime(line.timeMs)}]${line.text}"
                     }
+                } else {
+                    lyric.lines.joinToString("\n") { it.text }
                 }
-            } else {
-                lyric.lines.joinToString("\n") { it.text }
             }
             val jsonStr = buildString {
                 append("{")
                 append("\"synced\":${if (lyric.synced) "\"true\"" else "\"false\""},")
-                append("\"lrc\":${jsonPrimitiveEscape(lrcText)},")
-                append("\"plain\":${jsonPrimitiveEscape(lrcText)},")
+                append("\"lrc\":${jsonPrimitiveEscape(rawText)},")
+                append("\"plain\":${jsonPrimitiveEscape(rawText)},")
+                append("\"rawText\":${jsonPrimitiveEscape(rawText)},")
                 append("\"trackName\":${jsonPrimitiveEscape(lyric.trackName ?: "")},")
                 append("\"artistName\":${jsonPrimitiveEscape(lyric.artistName ?: "")}")
                 append("}")

@@ -263,7 +263,8 @@ fun Spiral2Player(
                         source = com.rajatxo.coral.data.lyrics.LyricSource.EMBEDDED,
                         trackName = safeTitle,
                         artistName = safeArtist,
-                        hasWordSync = hasWordSync
+                        hasWordSync = hasWordSync,
+                        rawText = embeddedRaw
                     )
                     isLyricsLoading = false
                     return@LaunchedEffect

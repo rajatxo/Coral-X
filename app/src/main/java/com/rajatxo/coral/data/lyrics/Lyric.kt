@@ -39,6 +39,10 @@ data class LyricLine(
  * @param trackName  Track name as returned by LrcLib (for display in the UI).
  * @param artistName Artist name as returned by LrcLib.
  * @param hasWordSync True if ANY line has word-by-word timing.
+ * @param rawText    The ORIGINAL raw lyrics text (LRC, Enhanced LRC, TTML, etc.)
+ *                   before parsing. Used to re-parse with accompanist's AutoParser
+ *                   for proper word-by-word + multi-person rendering. Null if
+ *                   the Lyric was created without preserving the source text.
  */
 data class Lyric(
     val synced: Boolean,
@@ -46,7 +50,8 @@ data class Lyric(
     val source: LyricSource,
     val trackName: String? = null,
     val artistName: String? = null,
-    val hasWordSync: Boolean = false
+    val hasWordSync: Boolean = false,
+    val rawText: String? = null
 ) {
     companion object {
         val Empty = Lyric(

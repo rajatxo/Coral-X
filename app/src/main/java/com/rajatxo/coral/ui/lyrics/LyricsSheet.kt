@@ -205,7 +205,8 @@ fun LyricsSheet(
                         source = LyricSource.EMBEDDED,
                         trackName = trackName,
                         artistName = artistName,
-                        hasWordSync = hasWordSync
+                        hasWordSync = hasWordSync,
+                        rawText = embeddedLyrics
                     )
                 } else {
                     lyric = null
@@ -694,20 +695,24 @@ fun LyricsSheet(
 
 /**
  * ★ AccompanistLyricsContent — renders word-synced lyrics using accompanist's
- *   KaraokeLyricsView. Used when the parsed Lyric has word sync OR is
- *   line-synced (we let accompanist handle both — it gracefully degrades
- *   to line-level rendering when there are no syllables).
+ *   KaraokeLyricsView. Uses accompanist's AutoParser to parse the raw lyrics
+ *   text (TTML, Enhanced LRC, YRC, KRC, Lyricify Syllable) directly into a
+ *   SyncedLyrics model — bypassing our LrcParser entirely. This preserves
+ *   multi-person / duet structure, word-level timing, and accompaniment lines
+ *   that our LrcParser flattens.
  *
- * Conversion: our Lyric model → accompanist's SyncedLyrics model.
- *   - LyricLine with hasWordSync → KaraokeLine.MainKaraokeLine (with syllables)
- *   - LyricLine without hasWordSync → SyncedLine (line-level only)
+ * AutoParser chain (from accompanist-lyrics-core):
+ *   TTMLParser → LyricifySyllableParser → EnhancedLrcParser → KugouKrcParser → NeteaseYrcParser
  *
- * Why use accompanist instead of our CinematicLyricsContent:
- *   - Proper karaoke animation (sweep + bounce + glow per syllable)
- *   - Multi-person / duets (KaraokeAlignment.Start / End)
- *   - Accompaniment (background) vocal lines
- *   - Breathing dots during instrumental gaps
- *   - Better performance (text measurement cached, off-main-thread)
+ * Falls back to our CinematicLyricsContent if:
+ *   - rawText is null (Lyric was created without preserving source text)
+ *   - AutoParser returns empty SyncedLyrics
+ *   - AutoParser can't parse the format
+ *
+ * ★ Auto-scroll fix: accompanist's derivedStateOf reads currentPosition via
+ *   the lambda we pass. The lambda must read from a Compose State (not a plain
+ *   parameter) for derivedStateOf to track it. We wrap currentPositionMs in
+ *   rememberUpdatedState so the lambda reads from the State.
  */
 @Composable
 private fun AccompanistLyricsContent(
@@ -715,16 +720,44 @@ private fun AccompanistLyricsContent(
     currentPositionMs: Long,
     onSeek: (Long) -> Unit
 ) {
-    // ★ Convert our Lyric model → accompanist's SyncedLyrics model
+    val rawText = lyric.rawText
+
+    if (rawText.isNullOrBlank()) {
+        // No raw text to parse with AutoParser — fall back to cinematic renderer
+        CinematicLyricsContent(lyric, currentPositionMs, onSeek)
+        return
+    }
+
+    // ★ Use accompanist's AutoParser to parse the raw text directly.
+    //   This handles TTML multi-agent, Enhanced LRC word sync, YRC, KRC, etc.
+    //   without our manual Lyric → SyncedLyrics conversion (which had bugs).
     val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
-        remember(lyric) { lyric.toAccompanistSyncedLyrics() }
+        remember(rawText) {
+            try {
+                com.mocharealm.accompanist.lyrics.core.parser.AutoParser().parse(rawText)
+            } catch (_: Exception) {
+                // AutoParser failed — return empty, will fall back below
+                com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(emptyList())
+            }
+        }
+
+    if (syncedLyrics.lines.isEmpty()) {
+        // AutoParser couldn't parse the format — fall back to cinematic
+        CinematicLyricsContent(lyric, currentPositionMs, onSeek)
+        return
+    }
+
+    // ★ Wrap currentPositionMs in a Compose State so accompanist's derivedStateOf
+    //   tracks changes. Without this, the lambda { currentPositionMs.toInt() }
+    //   captures the value at first composition and never updates.
+    val positionState = androidx.compose.runtime.rememberUpdatedState(currentPositionMs.toInt())
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView(
         listState = listState,
         lyrics = syncedLyrics,
-        currentPosition = { currentPositionMs.toInt() },
+        currentPosition = { positionState.value },
         onLineClicked = { line -> onSeek(line.start.toLong()) },
         onLinePressed = { /* no-op for now */ },
         modifier = Modifier.fillMaxSize(),
@@ -745,7 +778,10 @@ private fun AccompanistLyricsContent(
 }
 
 /**
- * ★ Convert our [Lyric] model → accompanist's [SyncedLyrics] model.
+ * Convert our [Lyric] model → accompanist's [SyncedLyrics] model.
+ *
+ * DEPRECATED: Only used as a fallback when rawText is unavailable.
+ * The primary path uses AutoParser directly on rawText (see AccompanistLyricsContent).
  *
  * - LyricLine with hasWordSync + words → KaraokeLine.MainKaraokeLine
  *   (with syllables derived from each WordTimestamp).
@@ -759,11 +795,10 @@ private fun Lyric.toAccompanistSyncedLyrics(): com.mocharealm.accompanist.lyrics
 
     lines.forEachIndexed { index, line ->
         val startMs = line.timeMs.toInt().coerceAtLeast(0)
-        val endMs = (lines.getOrNull(index + 1)?.timeMs?.toInt() ?: (startMs + 2000))
+        val endMs = (lines.getOrNull(index + 1)?.timeMs?.toInt()?.takeIf { it > startMs } ?: (startMs + 2000))
             .coerceAtLeast(startMs + 1)
 
         if (line.hasWordSync && line.words != null && line.words.isNotEmpty()) {
-            // Word-synced line → KaraokeLine.MainKaraokeLine with syllables
             val syllables = line.words.map { word ->
                 com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable(
                     content = word.text,
@@ -783,7 +818,6 @@ private fun Lyric.toAccompanistSyncedLyrics(): com.mocharealm.accompanist.lyrics
                 )
             )
         } else {
-            // Line-synced only → SyncedLine (accompanist will render as plain line)
             accompanistLines.add(
                 com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine(
                     content = line.text.ifBlank { "♪" },
