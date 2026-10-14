@@ -76,6 +76,7 @@ import com.rajatxo.coral.util.adaptiveContrastColor
 import com.rajatxo.coral.util.extractPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * ★ Spiral2Player — ported from old Coral's Spiral2Player, stripped down to
@@ -201,6 +202,73 @@ fun Spiral2Player(
             )
             showHeartPop = false
         }
+    }
+
+    // ─── Lyrics state ─────────────────────────────────────────────
+    // Auto-fetch when song changes: imported .lrc → cached → network (LrcLib/NetEase/KuGou).
+    // The strip shows the current line; tap to open the full LyricsSheet page.
+    val lyricsRepository = remember { com.rajatxo.coral.data.lyrics.LyricsRepository(context) }
+    var lyricData by remember { mutableStateOf<com.rajatxo.coral.data.lyrics.Lyric?>(null) }
+    var isLyricsLoading by remember { mutableStateOf(false) }
+    var showLyricsSheet by remember { mutableStateOf(false) }
+
+    // ★ AUTO-FETCH on song change (does NOT use getEmbeddedLyrics — that uses
+    //   MediaMetadataRetriever on the same URI ExoPlayer is playing, which on
+    //   many devices conflicts with the audio track and silences playback).
+    LaunchedEffect(song?.title, song?.artist) {
+        val title = song?.title
+        val artist = song?.artist
+        if (title.isNullOrBlank()) {
+            lyricData = null
+            isLyricsLoading = false
+            return@LaunchedEffect
+        }
+        isLyricsLoading = true
+        // 1. Try imported .lrc (highest priority — user explicitly chose these)
+        val imported = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            lyricsRepository.getImportedLrc(title, artist)
+        }
+        if (imported != null) {
+            lyricData = imported
+            isLyricsLoading = false
+            return@LaunchedEffect
+        }
+        // 2. Try cached fetched lyrics (instant, offline)
+        val cached = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            lyricsRepository.getLyrics(title, artist, song?.album, durationMs)
+        }
+        if (cached != null) {
+            lyricData = cached
+            isLyricsLoading = false
+            return@LaunchedEffect
+        }
+        // 3. Auto-fetch from network (LrcLib → KuGou → NetEase)
+        try {
+            val fetched = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                lyricsRepository.fetchFromNetwork(title, artist, song?.album, durationMs)
+            }
+            lyricData = fetched
+        } catch (_: Exception) { }
+        isLyricsLoading = false
+    }
+
+    // ★ Active line index — binary search for the current line based on position
+    val activeLineIndex = if (lyricData != null && lyricData!!.synced && lyricData!!.lines.isNotEmpty()) {
+        findActiveLineIndex(lyricData!!.lines, positionMs)
+    } else -1
+
+    // ★ Current lyric strip text (1 line — what shows above the seek bar)
+    val lyricStripText = when {
+        isLyricsLoading && lyricData == null -> "Loading..."
+        lyricData != null && lyricData!!.synced && activeLineIndex >= 0 ->
+            lyricData!!.lines[activeLineIndex].text.ifBlank { "♪" }
+        lyricData != null && lyricData!!.synced && lyricData!!.lines.isNotEmpty() -> {
+            // Before first line / after last — show nearest so strip isn't empty
+            val idx = activeLineIndex.coerceIn(0, lyricData!!.lines.lastIndex)
+            lyricData!!.lines[idx].text.ifBlank { "♪" }
+        }
+        lyricData != null && !lyricData!!.synced && lyricData!!.lines.isNotEmpty() -> "♪"
+        else -> "No Lyrics Available"
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -546,7 +614,7 @@ fun Spiral2Player(
                 )
             }
 
-            // ── (d) BOTTOM PANEL — seek bar + time labels + transport pod ──
+            // ── (d) BOTTOM PANEL — lyrics strip + seek bar + transport pod ──
             // Flows naturally below the title block. No absolute BottomCenter
             // alignment — uses Column flow with Spacers.
             var seekbarWidthPx by remember { mutableFloatStateOf(1f) }
@@ -556,6 +624,43 @@ fun Spiral2Player(
                     .padding(horizontal = 28.dp)
                     .padding(bottom = 24.dp)
             ) {
+                // ── Lyrics strip (1-line synced, tap to open full sheet) ──
+                androidx.compose.animation.Crossfade(
+                    targetState = lyricStripText,
+                    animationSpec = tween(400),
+                    label = "lyricsLineFade"
+                ) { stripText ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { showLyricsSheet = true },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stripText,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontFamily = CalSansFamily,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(shadow = artistShadow),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = CoralXIcons.ChevronRight,
+                            contentDescription = "Open lyrics",
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
                 // ── Seek bar (drag-to-scrub, thickens on hold, no thumb) ──
                 Box(
                     modifier = Modifier
@@ -700,7 +805,54 @@ fun Spiral2Player(
                 }
             }
         }
+
+        // ─── Lyrics Sheet overlay (full-screen karaoke page) ────────
+        // Opens when user taps the lyrics strip. Renders the full cinematic
+        // lyrics sheet with word-by-word karaoke animation, tap-to-seek,
+        // and the 3-dot menu (Fetch, Import LRC, Paste Lyrics).
+        if (showLyricsSheet) {
+            com.rajatxo.coral.ui.lyrics.LyricsSheet(
+                trackName = song?.title ?: "",
+                artistName = song?.artist ?: "",
+                albumName = song?.album,
+                durationMs = durationMs,
+                currentPositionMs = positionMs,
+                isPlaying = isPlaying,
+                onDismiss = { showLyricsSheet = false },
+                onSeek = { ms -> playback.seekTo(ms) },
+                albumArtUri = artUri,
+                onLyricsFetched = { fetched ->
+                    if (fetched != null) lyricData = fetched
+                }
+            )
+        }
     }
+}
+
+/**
+ * Binary search for the active lyric line at the given position.
+ * Returns -1 if no line is active yet (position before first line).
+ */
+private fun findActiveLineIndex(
+    lines: List<com.rajatxo.coral.data.lyrics.LyricLine>,
+    positionMs: Long
+): Int {
+    if (lines.isEmpty()) return -1
+    var lo = 0
+    var hi = lines.lastIndex
+    var result = -1
+    while (lo <= hi) {
+        val mid = (lo + hi) / 2
+        if (lines[mid].timeMs in 0..positionMs) {
+            result = mid
+            lo = mid + 1
+        } else if (lines[mid].timeMs > positionMs) {
+            hi = mid - 1
+        } else {
+            lo = mid + 1
+        }
+    }
+    return result
 }
 
 /** m:ss formatter — used for both elapsed and remaining times. */
