@@ -1116,12 +1116,11 @@ private fun SweptLyricLine(
                                             }
                                         } else {
                                             // Partially sung row — clip to sung portion
-                                            // ★ Use getHorizontalOffset for exact character boundary
+                                            // ★ Use getBoundingBox for exact character boundary
                                             //   (sub-character precision for smooth sweep)
                                             val sungWidth = try {
-                                                measured.getHorizontalOffset(
-                                                    rowIndex, sungChars.toInt().coerceIn(rowStart, rowEnd)
-                                                ) - rowLeft
+                                                val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
+                                                measured.getBoundingBox(charOffset).right - rowLeft
                                             } catch (_: Exception) {
                                                 // Fallback: proportional width
                                                 val rowFraction = (sungChars - rowStart) / (rowEnd - rowStart).coerceAtLeast(1)
