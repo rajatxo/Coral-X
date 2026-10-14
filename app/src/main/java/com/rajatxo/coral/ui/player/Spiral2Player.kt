@@ -85,21 +85,23 @@ import kotlinx.coroutines.launch
  *   1. Opaque black base (fades together with whole player during drag-down).
  *   2. 96dp blurred album art fills entire screen as background.
  *   3. Column flow:
- *        a. Top header (chevron-down · NOW PLAYING · ellipsis) — fixed ~56dp
- *        b. Sharp cover Box — weight(1f), takes ALL remaining vertical space.
+ *        a. COVER + HEADER (Box, weight 1f) — cover is FULL-BLEED edge-to-edge
+ *           (top of screen, under status bar). Header Row floats OVER the
+ *           cover via statusBarsPadding + align(TopCenter). NO solid black
+ *           strip at the top. Cover's bottom edge dissolves into the blurred
+ *           bg via a DstIn mask (no harsh line).
  *           On a tall phone: cover is large.
- *           On a small floating window: cover SHRINKS so the title + seek bar
+ *           On a small floating window: cover shrinks so the title + seek bar
  *           + transport fit below WITHOUT overlapping (fixes ViVi/Coral bug).
- *           Bottom edge dissolves into the blurred bg via a DstIn mask.
- *        c. Song title + 3-dot menu icon (LEFT-aligned, flows below cover)
- *        d. Artist name
- *        e. Seek bar (drag-to-scrub, thickens 4dp → 10dp on hold)
- *        f. Time labels: current / remaining
- *        g. Triple-circle transport pod: Prev · Play/Pause · Next
+ *        b. Song title + 3-dot menu icon (LEFT-aligned, flows below cover)
+ *        c. Artist name
+ *        d. Seek bar (drag-to-scrub, thickens 4dp → 10dp on hold)
+ *        e. Time labels: current / remaining
+ *        f. Triple-circle transport pod: Prev · Play/Pause · Next
  *
  * Universal fitting (BitChord approach):
  *   - Column flow with weight(1f) on the cover (NO absolute offset positioning)
- *   - statusBarsPadding for top header
+ *   - statusBarsPadding for the header overlay (floats over the cover)
  *   - navigationBarsPadding for bottom (real system inset, NOT forced ≥48dp
  *     which would be huge on a floating window)
  *   - graphicsLayer translation/alpha for drag-down-to-dismiss
@@ -311,116 +313,181 @@ fun Spiral2Player(
 
         // ═════════════════════════════════════════════════════════════════
         // (3) COLUMN FLOW — top → bottom (BitChord approach)
+        //
+        // ★ Cover is FULL-BLEED (edge-to-edge, top of screen) — NOT below the
+        //   header. The header floats OVER the cover via statusBarsPadding,
+        //   matching old Coral's Spiral layout. This avoids the solid black
+        //   strip at the top that the previous Column-flow had.
         // ═════════════════════════════════════════════════════════════════
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // ── (a) TOP HEADER — chevron-down · NOW PLAYING · ellipsis ──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Back button — translucent dark capsule
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = false)
-                        ) { onDismiss() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = CoralXIcons.ChevronDown,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                // NOW PLAYING label — centered, letter-spaced uppercase
-                Text(
-                    text = "NOW PLAYING",
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 11.sp,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 2.sp,
-                    style = TextStyle(shadow = textShadow)
-                )
-                // More button (3-dot) — placeholder, no popup yet
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = false)
-                        ) { /* TBD: more menu capsule */ },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = CoralXIcons.Ellipsis,
-                        contentDescription = "More",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            // ── (b) COVER — weight(1f), takes ALL remaining vertical space ──
-            //   On a tall phone: cover is large (like the old 65% fraction).
-            //   On a floating window: cover shrinks so the title + seek bar
-            //   + transport fit below without overlapping.
+            // ── (a) COVER + HEADER (overlaid) — weight(1f), full-bleed ──
+            //   Box holds: [cover fills entire Box] + [header Row overlaid on top]
+            //   Cover extends edge-to-edge (under status bar); header floats over it.
             if (artUri != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .drawWithContent {
-                            drawContent()
-                            // Bottom fade: opaque → transparent over 140dp.
-                            // NO black gradient — just a DstIn mask so the sharp
-                            // cover dissolves into the blurred bg behind it.
-                            val fadeHeightPx = 140.dp.toPx()
-                            val startY = (size.height - fadeHeightPx).coerceAtLeast(0f)
-                            drawRect(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(Color.Black, Color.Transparent),
-                                    startY = startY,
-                                    endY = size.height
-                                ),
-                                blendMode = BlendMode.DstIn
-                            )
-                        }
-                        .pointerInput(artUri) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    // Double-tap = visual heart pop (favorites store TBD)
-                                    showHeartPop = true
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            )
-                        }
                 ) {
-                    AsyncImage(
-                        model = artUri,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    // Cover — fills the entire Box, edge-to-edge (full-bleed)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .drawWithContent {
+                                drawContent()
+                                // Bottom fade: opaque → transparent over 140dp.
+                                // NO black gradient — just a DstIn mask so the sharp
+                                // cover dissolves into the blurred bg behind it.
+                                val fadeHeightPx = 140.dp.toPx()
+                                val startY = (size.height - fadeHeightPx).coerceAtLeast(0f)
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color.Black, Color.Transparent),
+                                        startY = startY,
+                                        endY = size.height
+                                    ),
+                                    blendMode = BlendMode.DstIn
+                                )
+                            }
+                            .pointerInput(artUri) {
+                                detectTapGestures(
+                                    onDoubleTap = {
+                                        // Double-tap = visual heart pop (favorites store TBD)
+                                        showHeartPop = true
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                )
+                            }
+                    ) {
+                        AsyncImage(
+                            model = artUri,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // Header Row — floats OVER the cover, status-bar aware
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Back button — translucent dark capsule
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(bounded = false)
+                                ) { onDismiss() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = CoralXIcons.ChevronDown,
+                                contentDescription = "Back",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        // NOW PLAYING label — centered, letter-spaced uppercase
+                        Text(
+                            text = "NOW PLAYING",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 11.sp,
+                            fontFamily = CalSansFamily,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 2.sp,
+                            style = TextStyle(shadow = textShadow)
+                        )
+                        // More button (3-dot) — placeholder, no popup yet
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(bounded = false)
+                                ) { /* TBD: more menu capsule */ },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = CoralXIcons.Ellipsis,
+                                contentDescription = "More",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             } else {
-                // No album art — spacer keeps the layout flow correct
+                // No album art — header alone + spacer keeps the layout flow correct
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false)
+                            ) { onDismiss() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralXIcons.ChevronDown,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Text(
+                        text = "NOW PLAYING",
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 11.sp,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 2.sp,
+                        style = TextStyle(shadow = textShadow)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false)
+                            ) { /* TBD: more menu capsule */ },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralXIcons.Ellipsis,
+                            contentDescription = "More",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.weight(1f))
             }
 
