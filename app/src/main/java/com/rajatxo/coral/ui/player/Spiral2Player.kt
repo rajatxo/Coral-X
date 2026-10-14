@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -264,18 +265,63 @@ fun Spiral2Player(
         findActiveLineIndex(lyricData!!.lines, positionMs)
     } else -1
 
-    // ★ Current lyric strip text (1 line — what shows above the seek bar)
-    val lyricStripText = when {
+    // ★ Current lyric line plain text (used to compute the strip display)
+    val lyricLineText = when {
         isLyricsLoading && lyricData == null -> "Loading..."
         lyricData != null && lyricData!!.synced && activeLineIndex >= 0 ->
             lyricData!!.lines[activeLineIndex].text.ifBlank { "♪" }
         lyricData != null && lyricData!!.synced && lyricData!!.lines.isNotEmpty() -> {
-            // Before first line / after last — show nearest so strip isn't empty
             val idx = activeLineIndex.coerceIn(0, lyricData!!.lines.lastIndex)
             lyricData!!.lines[idx].text.ifBlank { "♪" }
         }
         lyricData != null && !lyricData!!.synced && lyricData!!.lines.isNotEmpty() -> "♪"
         else -> "No Lyrics Available"
+    }
+
+    // ★ Build word-by-word annotated string for the lyrics strip
+    //   - If the active line has word sync (Enhanced LRC / TTML):
+    //     active/past words = WHITE BOLD, future words = WHITE 35%
+    //   - Otherwise: whole line as WHITE
+    //   - Recomputes on every positionMs update so the highlight tracks the
+    //     playhead in real time (per-word granularity).
+    val lyricStripText: androidx.compose.ui.text.AnnotatedString = if (
+        lyricData != null && lyricData!!.synced && activeLineIndex >= 0
+    ) {
+        val activeLine = lyricData!!.lines[activeLineIndex]
+        if (activeLine.hasWordSync && activeLine.words != null) {
+            androidx.compose.ui.text.buildAnnotatedString {
+                activeLine.words.forEach { word ->
+                    val isWordActiveOrPast = positionMs >= word.startTime
+                    if (isWordActiveOrPast) {
+                        androidx.compose.ui.text.withStyle(
+                            androidx.compose.ui.text.SpanStyle(
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        ) { append(word.text) }
+                    } else {
+                        androidx.compose.ui.text.withStyle(
+                            androidx.compose.ui.text.SpanStyle(
+                                color = Color.White.copy(alpha = 0.35f)
+                            )
+                        ) { append(word.text) }
+                    }
+                    append(" ")
+                }
+            }
+        } else {
+            androidx.compose.ui.text.buildAnnotatedString {
+                androidx.compose.ui.text.withStyle(
+                    androidx.compose.ui.text.SpanStyle(color = Color.White)
+                ) { append(lyricLineText) }
+            }
+        }
+    } else {
+        androidx.compose.ui.text.buildAnnotatedString {
+            androidx.compose.ui.text.withStyle(
+                androidx.compose.ui.text.SpanStyle(color = Color.White)
+            ) { append(lyricLineText) }
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -631,7 +677,10 @@ fun Spiral2Player(
                     .padding(horizontal = 28.dp)
                     .padding(bottom = 24.dp)
             ) {
-                // ── Lyrics strip (1-line synced, tap to open full sheet) ──
+                // ── Lyrics strip (1-line synced, word-by-word highlight, marquee) ──
+                // Word-by-word: past/active words = WHITE BOLD, future = WHITE 35%.
+                // Long lines scroll horizontally via basicMarquee (no ellipsis cutoff).
+                // Crossfade between lines (400ms) so the swap is smooth.
                 androidx.compose.animation.Crossfade(
                     targetState = lyricStripText,
                     animationSpec = tween(400),
@@ -646,23 +695,38 @@ fun Spiral2Player(
                             ) { showLyricsSheet = true },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = stripText,
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontFamily = CalSansFamily,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(shadow = artistShadow),
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = CoralXIcons.ChevronRight,
-                            contentDescription = "Open lyrics",
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp)
-                        )
+                        // Marquee holds Text + Chevron together so the chevron
+                        // scrolls with the text and always sits at its end.
+                        // No weight on either — Row hugs content, marquee takes
+                        // over when content exceeds width.
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .basicMarquee(
+                                    initialDelayMillis = 1_200,
+                                    velocity = 40.dp
+                                ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stripText,
+                                fontSize = 18.sp,
+                                fontFamily = CalSansFamily,
+                                maxLines = 1,
+                                style = TextStyle(shadow = Shadow(
+                                    color = Color.Black.copy(alpha = 0.7f),
+                                    offset = Offset(1f, 1f),
+                                    blurRadius = 4f
+                                ))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = CoralXIcons.ChevronRight,
+                                contentDescription = "Open lyrics",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
 
