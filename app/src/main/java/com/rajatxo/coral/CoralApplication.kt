@@ -29,5 +29,7 @@ class CoralApplication : Application() {
         com.rajatxo.coral.data.prefs.CynthiaMiniPlayerCustomization.init(this)
         com.rajatxo.coral.data.prefs.CynthiaTabCapsulePosition.init(this)
         com.rajatxo.coral.data.prefs.CynthiaSearchFabPosition.init(this)
+        // ★ Lyrics picker highlight animation (PULSE_RING / SUN_GLOW)
+        com.rajatxo.coral.data.prefs.LyricsAnimationManager.init(this)
     }
 }
