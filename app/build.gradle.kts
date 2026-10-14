@@ -116,6 +116,8 @@ dependencies {
     implementation("androidx.media3:media3-session:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-decoder:1.5.1")
+    // ★ media3-extractor — needed by Gramophone's LrcUtils for ID3/Vorbis metadata parsing
+    implementation("androidx.media3:media3-extractor:1.5.1")
 
     // ★ ALAC decoder — pure-Java fallback for 24-bit ALAC files
     //    (hardware decoder on some devices silently produces silence

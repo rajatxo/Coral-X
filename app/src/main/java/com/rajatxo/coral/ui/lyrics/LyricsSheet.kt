@@ -518,18 +518,37 @@ fun LyricsSheet(
                     }
                 }
                 lyric != null -> {
-                    // ★ Use accompanist KaraokeLyricsView — same approach as Lyricify.
-                    //   AutoParser parses raw lyrics text → SyncedLyrics → KaraokeLyricsView renders.
-                    //   No custom rendering, no sanitizers, no preprocessors.
+                    // ★ Use SpatialFlow lyrics renderer — per-character sweep, Apache 2.0.
+                    //   Handles Enhanced LRC + TTML with word timestamps.
                     //   Falls back to CinematicLyricsContent for unsynced plain text.
-                    if (lyric!!.synced && lyric!!.rawText != null) {
-                        AccompanistLyricsContent(
-                            rawText = lyric!!.rawText!!,
-                            currentPositionMs = currentPositionMs,
-                            isPlaying = isPlaying,
-                            fontSizeSp = lyricsFontSize,
-                            onSeek = onSeek
-                        )
+                    if (lyric!!.synced) {
+                        // ★ Parse with GramophoneLrcParser (more robust than our LrcParser)
+                        val parsedLines = remember(lyric!!.rawText) {
+                            com.rajatxo.coral.data.lyrics.GramophoneLrcParser.parse(lyric!!.rawText)
+                        }
+                        if (parsedLines.isNotEmpty()) {
+                            com.rajatxo.coral.ui.lyrics.SpatialFlowLyrics(
+                                lines = parsedLines,
+                                currentPositionMs = currentPositionMs,
+                                isPlaying = isPlaying,
+                                fontSizeSp = lyricsFontSize,
+                                onSeek = onSeek
+                            )
+                        } else if (lyric!!.lines.isNotEmpty()) {
+                            com.rajatxo.coral.ui.lyrics.SpatialFlowLyrics(
+                                lines = lyric!!.lines,
+                                currentPositionMs = currentPositionMs,
+                                isPlaying = isPlaying,
+                                fontSizeSp = lyricsFontSize,
+                                onSeek = onSeek
+                            )
+                        } else {
+                            CinematicLyricsContent(
+                                lyric = lyric!!,
+                                currentPositionMs = currentPositionMs,
+                                onSeek = onSeek
+                            )
+                        }
                     } else {
                         CinematicLyricsContent(
                             lyric = lyric!!,
