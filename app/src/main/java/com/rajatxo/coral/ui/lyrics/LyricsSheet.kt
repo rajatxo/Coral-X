@@ -974,7 +974,6 @@ private fun SweptLyricLine(
     fontSizeSp: Float = 26f,
     onSeek: (Long) -> Unit
 ) {
-    // Progressive opacity by distance from active line
     val targetAlpha = when {
         isActive -> 1f
         distanceFromActive == 1 -> 0.5f
@@ -987,8 +986,6 @@ private fun SweptLyricLine(
         animationSpec = tween(if (isActive) 330 else 500),
         label = "lineAlpha"
     )
-
-    // Scale: active = 1.0, inactive = 0.96
     val targetScale = if (isActive) 1f else 0.96f
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
@@ -999,11 +996,11 @@ private fun SweptLyricLine(
     val fontSize = fontSizeSp.sp
     val fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold
     val hasWordSync = line.hasWordSync && line.words != null && line.words.isNotEmpty()
+    val text = line.text.ifBlank { "♪" }
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    // ★ PER-WORD RENDERING — what every lyrics app actually does.
-    //   Each word is a separate Text. Each word clips itself with clipRect.
-    //   No gradient. No BlendMode. No per-row complexity. Just clipRect.
-    //   Inspired by SimpMusic + BitChord approach (not copied).
+    val showBright = hasWordSync || isActive || isBefore
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1017,54 +1014,149 @@ private fun SweptLyricLine(
                 indication = null
             ) { if (line.timeMs >= 0) onSeek(line.timeMs) }
     ) {
-        if (hasWordSync && line.words != null) {
-            // ★ Word-synced: render each word separately in a FlowRow.
-            //   Each word: dim base (grey) + bright overlay (white) clipped by clipRect.
-            //   The progress per word is 0..1 based on word.startMs → word.endMs.
-            //   Clock read in drawWithContent for 60fps smoothness.
-            @OptIn(ExperimentalLayoutApi::class)
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                line.words.forEachIndexed { index, word ->
-                    val wordText = if (index < line.words.size - 1) "${word.text} " else word.text
-                    val isWordSung = isBefore // past line = all sung
-                    SweptWord(
-                        text = wordText,
-                        word = word,
-                        clockMs = clockMs,
-                        isActive = isActive,
-                        isBefore = isBefore,
-                        fontSize = fontSize,
-                        fontWeight = fontWeight
-                    )
-                }
-            }
-        } else {
-            // ★ Line-synced (no word sync): just show full text, dim or bright.
-            val text = line.text.ifBlank { "♪" }
-            val showBright = isActive || isBefore
+        // Dim base layer
+        Text(
+            text = text,
+            color = Color.White.copy(alpha = 0.35f),
+            fontSize = fontSize,
+            fontFamily = CalSansFamily,
+            fontWeight = fontWeight,
+            lineHeight = (fontSize.value * 1.3f).sp,
+            textAlign = TextAlign.Center,
+            maxLines = 3,
+            overflow = TextOverflow.Visible,
+            onTextLayout = { layoutResult = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        // Bright overlay — swept by gradient, clipped per visual row
+        if (showBright) {
             Text(
                 text = text,
-                color = if (showBright) Color.White else Color.White.copy(alpha = 0.35f),
+                color = Color.White,
                 fontSize = fontSize,
                 fontFamily = CalSansFamily,
                 fontWeight = fontWeight,
                 lineHeight = (fontSize.value * 1.3f).sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+                maxLines = 3,
+                overflow = TextOverflow.Visible,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        // ★ Read clock in DRAW phase — 60fps, no recomposition
+                        if (!hasWordSync) {
+                            // Line-synced: just draw full bright
+                            drawContent()
+                            return@drawWithContent
+                        }
+
+                        val currentPos = if (isActive) clockMs.value else 0L
+                        val sungFraction = when {
+                            isActive -> computeSungFraction(line, currentPos)
+                            isBefore -> 1f
+                            else -> 0f
+                        }
+
+                        if (sungFraction <= 0f) return@drawWithContent
+                        if (sungFraction >= 1f) { drawContent(); return@drawWithContent }
+
+                        // ★ SMOOTH GRADIENT SWEEP — per visual row.
+                        //   For each visual row (handles wrapping), compute the
+                        //   horizontal gradient that fades from opaque (sung)
+                        //   to transparent (unsung). This creates the smooth
+                        //   glow transition the user wants.
+                        //
+                        //   The gradient is per-row so row 1 fills before row 2
+                        //   starts (fixes the multi-line issue).
+                        //
+                        //   featherWidth controls the soft edge — wider = smoother.
+                        val measured = layoutResult
+                        if (measured == null) {
+                            // Fallback: simple gradient across full width
+                            drawContent()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colorStops = arrayOf(
+                                        0f to Color.Black,
+                                        sungFraction to Color.Black,
+                                        (sungFraction + 0.06f).coerceAtMost(1f) to Color.Transparent,
+                                        1f to Color.Transparent
+                                    )
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                            return@drawWithContent
+                        }
+
+                        // ★ Per-row gradient sweep
+                        val totalChars = text.length
+                        val sungChars = totalChars * sungFraction
+
+                        for (rowIndex in 0 until measured.lineCount) {
+                            val rowStart = measured.getLineStart(rowIndex)
+                            val rowEnd = measured.getLineEnd(rowIndex, visibleEnd = true)
+                            if (sungChars <= rowStart) continue
+
+                            val rowLeft = measured.getLineLeft(rowIndex)
+                            val rowRight = measured.getLineRight(rowIndex)
+                            val rowTop = measured.getLineTop(rowIndex)
+                            val rowBottom = measured.getLineBottom(rowIndex)
+                            val rowWidth = rowRight - rowLeft
+
+                            if (sungChars >= rowEnd) {
+                                // Full row sung — clip to entire row, draw bright
+                                clipRect(left = rowLeft, top = rowTop, right = rowRight, bottom = rowBottom) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            } else {
+                                // ★ Partial row — clipRect for the sung part,
+                                //   PLUS a smooth gradient feather at the edge.
+                                //   This gives the smooth glow transition.
+                                val sungWidth = try {
+                                    val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
+                                    measured.getBoundingBox(charOffset).right - rowLeft
+                                } catch (_: Exception) {
+                                    val rowFraction = (sungChars - rowStart) /
+                                        (rowEnd - rowStart).coerceAtLeast(1)
+                                    rowWidth * rowFraction
+                                }
+                                val cutRight = (rowLeft + sungWidth).coerceAtMost(rowRight)
+                                // Feather width — 12% of row width, capped at 80px
+                                val featherWidth = (rowWidth * 0.12f).coerceAtMost(80f)
+                                val featherStart = (cutRight - featherWidth).coerceAtLeast(rowLeft)
+
+                                // Part 1: fully sung area (hard clip)
+                                clipRect(left = rowLeft, top = rowTop, right = featherStart, bottom = rowBottom) {
+                                    this@drawWithContent.drawContent()
+                                }
+                                // Part 2: feather zone (smooth gradient)
+                                clipRect(left = featherStart, top = rowTop, right = rowRight, bottom = rowBottom) {
+                                    this@drawWithContent.drawContent()
+                                    drawRect(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(Color.Black, Color.Transparent),
+                                            startX = featherStart,
+                                            endX = cutRight
+                                        ),
+                                        topLeft = androidx.compose.ui.geometry.Offset(featherStart, rowTop),
+                                        size = androidx.compose.ui.geometry.Size(
+                                            cutRight - featherStart,
+                                            rowBottom - rowTop
+                                        ),
+                                        blendMode = BlendMode.DstIn
+                                    )
+                                }
+                            }
+                        }
+                    }
             )
         }
     }
 }
 
 /**
- * ★ A single word with a dim base + bright overlay clipped by clipRect.
- *   The progress is 0..1 based on word.startMs → word.endMs.
- *   Clock is read in drawWithContent for 60fps smoothness (no recomposition).
- *   No gradient. No BlendMode. Just clipRect — what every lyrics app does.
+ * A single word — unused now, kept for reference.
  */
 @Composable
 private fun SweptWord(
@@ -1076,12 +1168,7 @@ private fun SweptWord(
     fontSize: androidx.compose.ui.unit.TextUnit,
     fontWeight: FontWeight
 ) {
-    // Determine if this word is fully sung, partially sung, or not sung
-    val fullySung = isBefore
-    val notStarted = !isActive && !isBefore
-
     Box {
-        // Dim base (grey)
         Text(
             text = text,
             color = Color.White.copy(alpha = 0.35f),
@@ -1089,9 +1176,7 @@ private fun SweptWord(
             fontFamily = CalSansFamily,
             fontWeight = fontWeight
         )
-        // Bright overlay (white) — clipped by clipRect based on word progress
-        if (fullySung) {
-            // Fully sung — show full bright, no clip needed
+        if (isBefore) {
             Text(
                 text = text,
                 color = Color.White,
@@ -1100,7 +1185,6 @@ private fun SweptWord(
                 fontWeight = fontWeight
             )
         } else if (isActive) {
-            // Active line — clip per word based on clock
             Text(
                 text = text,
                 color = Color.White,
@@ -1110,7 +1194,6 @@ private fun SweptWord(
                 modifier = Modifier
                     .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
-                        // ★ READ CLOCK IN DRAW PHASE — 60fps, no recomposition
                         val pos = clockMs.value
                         val progress = when {
                             pos >= word.endTime -> 1f
@@ -1121,7 +1204,6 @@ private fun SweptWord(
                         if (progress >= 1f) {
                             drawContent()
                         } else if (progress > 0f) {
-                            // ★ Simple clipRect — GPU-accelerated, no gradient, no blend mode
                             clipRect(right = size.width * progress) {
                                 this@drawWithContent.drawContent()
                             }
@@ -1129,7 +1211,6 @@ private fun SweptWord(
                     }
             )
         }
-        // notStarted: only dim base shows, no bright overlay
     }
 }
 
