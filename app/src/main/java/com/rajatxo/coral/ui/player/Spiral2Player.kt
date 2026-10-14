@@ -218,15 +218,22 @@ fun Spiral2Player(
     LaunchedEffect(song?.title, song?.artist) {
         val title = song?.title
         val artist = song?.artist
-        if (title.isNullOrBlank()) {
+        if (title.isNullOrBlank() || artist.isNullOrBlank()) {
             lyricData = null
             isLyricsLoading = false
             return@LaunchedEffect
         }
+        // ★ After the null-check above, title and artist are non-null.
+        //   Capture them in local vals so the smart-cast propagates into the
+        //   withContext lambdas below (Kotlin doesn't smart-cast song?.title
+        //   across lambda boundaries because song is a Compose state).
+        val safeTitle = title
+        val safeArtist = artist
+        val safeAlbum = song?.album
         isLyricsLoading = true
         // 1. Try imported .lrc (highest priority — user explicitly chose these)
         val imported = withContext(kotlinx.coroutines.Dispatchers.IO) {
-            lyricsRepository.getImportedLrc(title, artist)
+            lyricsRepository.getImportedLrc(safeTitle, safeArtist)
         }
         if (imported != null) {
             lyricData = imported
@@ -235,7 +242,7 @@ fun Spiral2Player(
         }
         // 2. Try cached fetched lyrics (instant, offline)
         val cached = withContext(kotlinx.coroutines.Dispatchers.IO) {
-            lyricsRepository.getLyrics(title, artist, song?.album, durationMs)
+            lyricsRepository.getLyrics(safeTitle, safeArtist, safeAlbum, durationMs)
         }
         if (cached != null) {
             lyricData = cached
@@ -245,7 +252,7 @@ fun Spiral2Player(
         // 3. Auto-fetch from network (LrcLib → KuGou → NetEase)
         try {
             val fetched = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                lyricsRepository.fetchFromNetwork(title, artist, song?.album, durationMs)
+                lyricsRepository.fetchFromNetwork(safeTitle, safeArtist, safeAlbum, durationMs)
             }
             lyricData = fetched
         } catch (_: Exception) { }
