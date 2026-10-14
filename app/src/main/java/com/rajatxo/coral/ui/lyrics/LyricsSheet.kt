@@ -704,10 +704,17 @@ fun LyricsSheet(
  * AutoParser chain (from accompanist-lyrics-core):
  *   TTMLParser → LyricifySyllableParser → EnhancedLrcParser → KugouKrcParser → NeteaseYrcParser
  *
+ * ★ CRASH FIX: After parsing, we sanitize the SyncedLyrics to ensure all
+ *   syllable and line end times are >= their start times. Real-world lyrics
+ *   (especially Enhanced LRC with multi-person `v1:` prefixes) often have
+ *   overlapping timelines — a word's end timestamp may exceed the next line's
+ *   start. accompanist's KaraokeSyllable has `init { require(end >= start) }`
+ *   which throws on these cases. The sanitizer clamps all ends to be >= starts.
+ *
  * Falls back to our CinematicLyricsContent if:
  *   - rawText is null (Lyric was created without preserving source text)
  *   - AutoParser returns empty SyncedLyrics
- *   - AutoParser can't parse the format
+ *   - AutoParser or sanitizer throws
  *
  * ★ Auto-scroll fix: accompanist's derivedStateOf reads currentPosition via
  *   the lambda we pass. The lambda must read from a Compose State (not a plain
@@ -731,12 +738,14 @@ private fun AccompanistLyricsContent(
     // ★ Use accompanist's AutoParser to parse the raw text directly.
     //   This handles TTML multi-agent, Enhanced LRC word sync, YRC, KRC, etc.
     //   without our manual Lyric → SyncedLyrics conversion (which had bugs).
+    //   Then sanitize to fix overlapping timelines that crash KaraokeLyricsView.
     val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
         remember(rawText) {
             try {
-                com.mocharealm.accompanist.lyrics.core.parser.AutoParser().parse(rawText)
+                val parsed = com.mocharealm.accompanist.lyrics.core.parser.AutoParser().parse(rawText)
+                sanitizeSyncedLyrics(parsed)
             } catch (_: Exception) {
-                // AutoParser failed — return empty, will fall back below
+                // AutoParser or sanitizer failed — return empty, will fall back below
                 com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(emptyList())
             }
         }
@@ -774,6 +783,93 @@ private fun AccompanistLyricsContent(
         ),
         offset = 80.dp,
         useBlurEffect = false  // blur is expensive on low-end devices
+    )
+}
+
+/**
+ * ★ Sanitize a SyncedLyrics to prevent crashes in KaraokeLyricsView.
+ *
+ * Real-world lyrics (especially Enhanced LRC with multi-person `v1:` prefixes)
+ * often have overlapping timelines:
+ *   [02:00.05] v1: ... <02:06.24>      ← last word ends at 02:06.24
+ *   [02:04.97] v1: <02:04.97>There's   ← next line starts at 02:04.97
+ *
+ * accompanist's KaraokeSyllable and KaraokeLine both have:
+ *   init { require(end >= start) }
+ *
+ * If a word's end gets clamped to the next line's start (which is before the
+ * word's own start), require() throws and the app crashes.
+ *
+ * This function:
+ *   1. For each syllable: clamp end to be at least start + 1ms
+ *   2. For each line: clamp end to be at least start + 1ms
+ *   3. Rebuilds KaraokeLine.MainKaraokeLine with sanitized values
+ *
+ * Inspired by ArchiveTune's clampEnhancedLrcLastWordEnds.
+ */
+private fun sanitizeSyncedLyrics(
+    lyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
+): com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics {
+    val sanitizedLines = lyrics.lines.map { line ->
+        when (line) {
+            is com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine -> {
+                val safeSyllables = line.syllables.map { s ->
+                    val safeStart = s.start.coerceAtLeast(0)
+                    val safeEnd = s.end.coerceAtLeast(safeStart + 1)
+                    s.copy(start = safeStart, end = safeEnd)
+                }
+                val safeStart = line.start.coerceAtLeast(0)
+                val safeEnd = line.end.coerceAtLeast(safeStart + 1)
+                try {
+                    line.copy(syllables = safeSyllables, start = safeStart, end = safeEnd)
+                } catch (_: Exception) {
+                    // If copy still fails (e.g. accompanimentLines constraint),
+                    // rebuild from scratch with minimal safe values
+                    com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.MainKaraokeLine(
+                        syllables = safeSyllables,
+                        translation = line.translation,
+                        alignment = line.alignment,
+                        start = safeStart,
+                        end = safeEnd,
+                        phonetic = line.phonetic,
+                        accompanimentLines = null  // drop accompaniment lines if they cause issues
+                    )
+                }
+            }
+            is com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.AccompanimentKaraokeLine -> {
+                val safeSyllables = line.syllables.map { s ->
+                    val safeStart = s.start.coerceAtLeast(0)
+                    val safeEnd = s.end.coerceAtLeast(safeStart + 1)
+                    s.copy(start = safeStart, end = safeEnd)
+                }
+                val safeStart = line.start.coerceAtLeast(0)
+                val safeEnd = line.end.coerceAtLeast(safeStart + 1)
+                try {
+                    line.copy(syllables = safeSyllables, start = safeStart, end = safeEnd)
+                } catch (_: Exception) {
+                    com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine.AccompanimentKaraokeLine(
+                        syllables = safeSyllables,
+                        translation = line.translation,
+                        alignment = line.alignment,
+                        start = safeStart,
+                        end = safeEnd,
+                        phonetic = line.phonetic
+                    )
+                }
+            }
+            is com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine -> {
+                val safeStart = line.start.coerceAtLeast(0)
+                val safeEnd = line.end.coerceAtLeast(safeStart + 1)
+                line.copy(start = safeStart, end = safeEnd)
+            }
+            else -> line  // Unknown line type — pass through as-is
+        }
+    }
+    return com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(
+        lines = sanitizedLines,
+        title = lyrics.title,
+        id = lyrics.id,
+        artists = lyrics.artists
     )
 }
 

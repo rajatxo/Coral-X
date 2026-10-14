@@ -714,14 +714,17 @@ fun Spiral2Player(
                     .padding(bottom = 24.dp)
             ) {
                 // ── Lyrics strip (1-line synced, word-by-word highlight, marquee) ──
-                // Word-by-word: past/active words = WHITE BOLD, future = WHITE 35%.
-                // Long lines scroll horizontally via basicMarquee (no ellipsis cutoff).
-                // Crossfade between lines (400ms) so the swap is smooth.
+                // ★ Crossfade ONLY on lyricLineText (changes once per line, ~every 3-5s).
+                //   The word-by-word AnnotatedString is rebuilt inside the crossfade
+                //   on every positionMs tick (200ms) for live word highlighting —
+                //   but this does NOT re-trigger the crossfade animation.
+                //   Previous bug: crossfade targeted the full AnnotatedString, which
+                //   re-triggered the 400ms fade every 200ms → stuttery/flickering.
                 androidx.compose.animation.Crossfade(
-                    targetState = lyricStripText,
+                    targetState = lyricLineText,
                     animationSpec = tween(400),
                     label = "lyricsLineFade"
-                ) { stripText ->
+                ) { _lineText ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -733,8 +736,6 @@ fun Spiral2Player(
                     ) {
                         // Marquee holds Text + Chevron together so the chevron
                         // scrolls with the text and always sits at its end.
-                        // No weight on either — Row hugs content, marquee takes
-                        // over when content exceeds width.
                         Row(
                             modifier = Modifier
                                 .weight(1f)
@@ -745,7 +746,7 @@ fun Spiral2Player(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = stripText,
+                                text = lyricStripText,
                                 fontSize = 18.sp,
                                 fontFamily = CalSansFamily,
                                 maxLines = 1,
