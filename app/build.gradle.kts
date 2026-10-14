@@ -21,7 +21,11 @@ android {
 
     defaultConfig {
         applicationId = "com.rajatxo.coralx"
-        minSdk = 24
+        // ★ Bumped from 24 → 29 to support accompanist-lyrics-ui (karaoke lyrics UI).
+        //   The library's AAR declares minSdk=29 (Android 10+). Lower minSdk
+        //   causes AGP to fail the build. Most active Android devices today are
+        //   API 29+, so this is a safe bump.
+        minSdk = 29
         targetSdk = 35
         versionCode = 576
         versionName = "0.5.76"
@@ -120,4 +124,18 @@ dependencies {
 
     // ★ Lifecycle — for PermissionScreen's DisposableEffect lifecycle observer
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    // ★ Accompanist Lyrics Core — pure-Kotlin lyrics parser (LRC, Enhanced LRC,
+    //    TTML/Apple Syllable, Lyricify Syllable). Apache 2.0.
+    //    Source: github.com/AmanRajAryan/accompanist-lyrics-core (fork of
+    //    Mocha-Realm/Accompanist-Lyrics by Simon Scholz / 6xingyv).
+    //    Used as the PRIMARY lyrics source parser.
+    implementation("com.mocharealm.accompanist:lyrics-core:0.4.7")
+
+    // ★ Accompanist Lyrics UI — karaoke-style Compose lyrics renderer.
+    //    Word-by-word highlighting, multi-voice (duets), accompaniment styling.
+    //    Apache 2.0. Source: github.com/AmanRajAryan/accompanist-lyrics-ui.
+    //    Compose Multiplatform 1.10.2 → maps to androidx.compose 1.10.4 on Android.
+    //    Pulls in gaze-capsule (com.mocharealm.gaze:capsule:2.1.1-patch2) transitively.
+    implementation("com.mocharealm.accompanist:lyrics-ui:1.0.18")
 }
