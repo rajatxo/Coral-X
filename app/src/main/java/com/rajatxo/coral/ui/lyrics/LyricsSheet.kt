@@ -1005,32 +1005,20 @@ private fun SweptLyricLine(
     //   - Line-synced lyrics: NO sweep (just highlight + dim)
     val showSweep = line.hasWordSync && line.words != null && line.words.isNotEmpty()
 
-    // ★ Read the clock ONLY when this line is actively animating (active + word-synced).
-    val isAnimating = isActive && showSweep
-    val currentPos = if (isAnimating) clockMs.value else 0L
-
-    // ★ Compute the sung fraction (0..1) for the sweep clip.
-    val sungFraction = when {
-        !showSweep -> 0f  // Line-synced: no sweep
-        isAnimating -> computeSungFraction(line, currentPos)
-        isBefore -> 1f    // Past word-synced line: fully sung
-        else -> 0f        // Future word-synced line: not sung yet
-    }
+    // ★ CRITICAL PERFORMANCE: Do NOT read clockMs.value here in composition!
+    //   Reading it here causes 60 recompositions/sec (one per frame) → jank.
+    //   Instead, always render both layers, and read clockMs.value ONLY inside
+    //   drawWithContent (draw phase doesn't trigger recomposition).
+    //
+    //   This is the #1 smoothness fix. BitChord does the same: their drawnAt()
+    //   lambda reads clock.longValue only inside drawWithContent.
 
     // The text to display (♪ for instrumental gaps)
     val text = line.text.ifBlank { "♪" }
 
-    // ★ Layout result captured from the dim Text — used to compute the sweep
-    //   clip rectangle based on character positions PER LINE (handles wrapping).
+    // ★ Layout result — captured from the dim Text's onTextLayout.
+    //   Used in the draw phase to compute clipRect per visual row.
     var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-
-    // ★ Determine if the bright overlay should be shown at all.
-    val showBright = when {
-        showSweep -> sungFraction > 0f
-        isActive -> true
-        isBefore -> true
-        else -> false
-    }
 
     Box(
         modifier = Modifier
@@ -1059,8 +1047,22 @@ private fun SweptLyricLine(
             onTextLayout = { layoutResult = it },
             modifier = Modifier.fillMaxWidth()
         )
-        // Bright overlay layer — only drawn if there's something sung/highlighted
-        if (showBright) {
+
+        // ★ Bright overlay layer — ALWAYS rendered.
+        //   The sweep clip is computed in the DRAW phase (drawWithContent),
+        //   reading clockMs.value there. This way clock updates (60fps) only
+        //   re-run the draw phase — no recomposition, no re-measurement = smooth.
+        //
+        //   For non-sweep lines (line-synced, already sung, active highlight):
+        //   the drawWithContent simply draws the full content (no clip).
+        //
+        //   For word-synced active lines: clipRect per visual row based on
+        //   the clock's current position → smooth sweep.
+        //
+        //   For non-active future lines: drawWithContent draws nothing (the
+        //   bright layer is effectively invisible because the clip rect is 0).
+        val shouldShowBright = showSweep || isActive || isBefore
+        if (shouldShowBright) {
             Text(
                 text = text,
                 color = Color.White,
@@ -1073,75 +1075,83 @@ private fun SweptLyricLine(
                 overflow = TextOverflow.Visible,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (showSweep && sungFraction < 1f) {
-                            // ★ Word-synced + partially sung: apply sweep clip.
-                            //   Uses clipRect per visual line (GPU-accelerated, smooth)
-                            //   instead of drawRect with BlendMode.DstOut (creates
-                            //   a new layer per frame = slow + janky).
-                            //   For each visual row in the wrapped text, clipRect
-                            //   to the sung portion. Row 1 fills before row 2 starts.
-                            Modifier
-                                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                                .drawWithContent {
-                                    val measured = layoutResult ?: return@drawWithContent
-                                    val totalChars = text.length
-                                    // ★ sungChars as FLOAT for sub-character precision.
-                                    //   E.g. 12.5 = halfway through character 12.
-                                    //   This gives smooth per-character sweep.
-                                    val sungChars = totalChars * sungFraction
-
-                                    for (rowIndex in 0 until measured.lineCount) {
-                                        val rowStart = measured.getLineStart(rowIndex)
-                                        val rowEnd = measured.getLineEnd(rowIndex, visibleEnd = true)
-                                        if (sungChars <= rowStart) {
-                                            // This entire row is NOT sung — skip it (don't draw)
-                                            continue
-                                        }
-                                        val rowLeft = measured.getLineLeft(rowIndex)
-                                        val rowRight = measured.getLineRight(rowIndex)
-                                        val rowTop = measured.getLineTop(rowIndex)
-                                        val rowBottom = measured.getLineBottom(rowIndex)
-                                        val rowWidth = rowRight - rowLeft
-
-                                        if (sungChars >= rowEnd) {
-                                            // This entire row IS sung — clip to full row width
-                                            clipRect(
-                                                left = rowLeft,
-                                                top = rowTop,
-                                                right = rowRight,
-                                                bottom = rowBottom
-                                            ) {
-                                                this@drawWithContent.drawContent()
-                                            }
-                                        } else {
-                                            // Partially sung row — clip to sung portion
-                                            // ★ Use getBoundingBox for exact character boundary
-                                            //   (sub-character precision for smooth sweep)
-                                            val sungWidth = try {
-                                                val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
-                                                measured.getBoundingBox(charOffset).right - rowLeft
-                                            } catch (_: Exception) {
-                                                // Fallback: proportional width
-                                                val rowFraction = (sungChars - rowStart) / (rowEnd - rowStart).coerceAtLeast(1)
-                                                rowWidth * rowFraction
-                                            }
-                                            clipRect(
-                                                left = rowLeft,
-                                                top = rowTop,
-                                                right = (rowLeft + sungWidth).coerceAtMost(rowRight),
-                                                bottom = rowBottom
-                                            ) {
-                                                this@drawWithContent.drawContent()
-                                            }
-                                        }
-                                    }
-                                }
-                        } else {
-                            // Line-synced or fully sung: no clip (full bright)
-                            Modifier
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        // ★ READ THE CLOCK HERE — in the DRAW phase, not composition.
+                        //   This is the key smoothness fix. When clockMs updates
+                        //   at 60fps, only this draw lambda re-runs — no Text
+                        //   recomposition, no re-measurement.
+                        val measured = layoutResult ?: run {
+                            drawContent()
+                            return@drawWithContent
                         }
-                    )
+
+                        if (!showSweep) {
+                            // Line-synced or no word sync: just draw full bright
+                            // (for active lines and already-sung lines)
+                            drawContent()
+                            return@drawWithContent
+                        }
+
+                        // ★ Word-synced: compute sungFraction from the clock
+                        val currentPos = if (isActive) clockMs.value else 0L
+                        val sungFraction = when {
+                            isActive -> computeSungFraction(line, currentPos)
+                            isBefore -> 1f    // Past word-synced line: fully sung
+                            else -> 0f        // Future word-synced line: not sung yet
+                        }
+
+                        if (sungFraction <= 0f) {
+                            // Nothing sung yet — don't draw the bright overlay
+                            return@drawWithContent
+                        }
+                        if (sungFraction >= 1f) {
+                            // Fully sung — draw entire content (no clip needed)
+                            drawContent()
+                            return@drawWithContent
+                        }
+
+                        // ★ Partially sung — clipRect per visual row.
+                        //   GPU-accelerated, no layer creation, smooth 60fps.
+                        val totalChars = text.length
+                        val sungChars = totalChars * sungFraction
+
+                        for (rowIndex in 0 until measured.lineCount) {
+                            val rowStart = measured.getLineStart(rowIndex)
+                            val rowEnd = measured.getLineEnd(rowIndex, visibleEnd = true)
+                            if (sungChars <= rowStart) continue  // Row not sung — skip
+
+                            val rowLeft = measured.getLineLeft(rowIndex)
+                            val rowRight = measured.getLineRight(rowIndex)
+                            val rowTop = measured.getLineTop(rowIndex)
+                            val rowBottom = measured.getLineBottom(rowIndex)
+
+                            if (sungChars >= rowEnd) {
+                                // Full row sung — clip to entire row
+                                clipRect(left = rowLeft, top = rowTop, right = rowRight, bottom = rowBottom) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            } else {
+                                // Partial row — clip to sung character boundary
+                                val sungWidth = try {
+                                    val charOffset = sungChars.toInt().coerceIn(rowStart, rowEnd)
+                                    measured.getBoundingBox(charOffset).right - rowLeft
+                                } catch (_: Exception) {
+                                    val rowFraction = (sungChars - rowStart) /
+                                        (rowEnd - rowStart).coerceAtLeast(1)
+                                    (rowRight - rowLeft) * rowFraction
+                                }
+                                clipRect(
+                                    left = rowLeft,
+                                    top = rowTop,
+                                    right = (rowLeft + sungWidth).coerceAtMost(rowRight),
+                                    bottom = rowBottom
+                                ) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
+                        }
+                    }
             )
         }
     }
