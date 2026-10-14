@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.Text
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rajatxo.coral.data.lyrics.LyricLine
@@ -245,9 +247,8 @@ private fun SpatialFlowLyricLine(
                             if (layout != null) {
                                 drawContent()
                                 if (isActive) {
-                                    eraseFutureText(layout, words, smoothedPos.toLong())
+                                    eraseFutureText(layout, words, smoothedPos.toLong(), this)
                                 }
-                                // If isPast: don't erase — full bright
                             }
                         }
                     }
@@ -317,10 +318,6 @@ private fun eraseFutureText(
         // Account for the space after each word (except the last)
         charOffset += wordLen
         if (wordIndex < words.size - 1) {
-            // Skip the space character — it should be bright if the word is sung
-            if (absoluteCharIndex + 1 < textLength) {
-                // Space character — don't erase it (let it stay bright if word is done)
-            }
             charOffset++ // +1 for the space
         }
     }
