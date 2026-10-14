@@ -216,12 +216,12 @@ private fun SpatialFlowLyricLine(
     val hasWordSync = line.hasWordSync && line.words != null && line.words.isNotEmpty()
     val words = line.words ?: emptyList()
 
-    // ★ Alpha animation
+    // ★ Alpha — SpatialFlow values: active=1.0, past=0.60, future=0.35
     val alpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
             isPast -> 0.60f
-            else -> 0.38f
+            else -> 0.35f
         },
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
@@ -243,33 +243,66 @@ private fun SpatialFlowLyricLine(
     val dimColor = Color.White.copy(alpha = 0.35f)
     val litColor = Color.White
 
+    // ★ Line end time for drift calculation
+    val lineStartMs = line.timeMs
+    val lineEndMs = if (line.words?.isNotEmpty() == true) {
+        line.words.last().endTime
+    } else {
+        lineStartMs + 5000L
+    }
+
     val textStyle = TextStyle(
         fontSize = fontSize,
         fontFamily = CalSansFamily,
         fontWeight = FontWeight.Bold,
         lineHeight = (fontSizeSp * 1.3f).sp,
-        textAlign = TextAlign.Center,
-        shadow = if (isActive && hasWordSync) Shadow(
-            color = Color.White.copy(alpha = 0.3f),
-            offset = Offset(0f, 0f),
-            blurRadius = 12f
-        ) else null
+        textAlign = TextAlign.Center
     )
+
+    // ★ Bright overlay style WITH glow shadow (SpatialFlow approach)
+    val litTextStyle = if (isActive && hasWordSync) {
+        textStyle.copy(
+            shadow = Shadow(
+                color = Color.White.copy(alpha = 0.5f),
+                offset = Offset(0f, 0f),
+                blurRadius = 18f
+            )
+        )
+    } else {
+        textStyle
+    }
 
     val layoutResult = remember { mutableStateOf<TextLayoutResult?>(null) }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer { this.alpha = alpha }
+            .graphicsLayer {
+                this.alpha = alpha
+
+                // ★ PULLING EFFECT — active line drifts up as it progresses
+                //   Same as SpatialFlow: translationY = -2dp * easeOutCubic(driftProgress)
+                val driftProgress = if (isActive) {
+                    val pos = currentPositionProvider()
+                    val duration = (lineEndMs - lineStartMs).coerceAtLeast(1L)
+                    ((pos - lineStartMs).toFloat() / duration).coerceIn(0f, 1f)
+                } else 0f
+
+                val driftDp = if (isActive) {
+                    val eased = easeOutCubic(driftProgress)
+                    -2f * eased
+                } else 0f
+
+                translationY = driftDp * density
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onSeek
             )
-            .padding(vertical = 10.dp, horizontal = 8.dp)
+            .padding(start = 28.dp, end = 24.dp, top = 12.dp, bottom = 12.dp)
     ) {
-        // ★ Dim base layer
+        // ★ Dim base layer — always rendered
         Text(
             text = text,
             style = textStyle,
@@ -278,11 +311,11 @@ private fun SpatialFlowLyricLine(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // ★ Bright overlay — erased per character based on word timing
+        // ★ Bright overlay — with glow shadow + per-character sweep
         if (hasWordSync && (isActive || isPast)) {
             Text(
                 text = text,
-                style = textStyle,
+                style = litTextStyle,
                 color = litColor,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -295,6 +328,7 @@ private fun SpatialFlowLyricLine(
                                 if (isActive) {
                                     eraseFutureText(layout, words, smoothedPos.toLong(), this)
                                 }
+                                // isPast: don't erase — full bright
                             }
                         }
                     }
