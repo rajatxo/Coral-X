@@ -16,15 +16,13 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -66,14 +64,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.rajatxo.coral.playback.PlaybackConnection
 import com.rajatxo.coral.ui.icons.CoralXIcons
 import com.rajatxo.coral.ui.theme.CalSansFamily
-import com.rajatxo.coral.ui.util.consistentNavBarPadding
 import com.rajatxo.coral.util.CoralPalette
 import com.rajatxo.coral.util.PaletteCache
 import com.rajatxo.coral.util.adaptiveContrastColor
@@ -85,26 +81,28 @@ import kotlinx.coroutines.launch
  * ★ Spiral2Player — ported from old Coral's Spiral2Player, stripped down to
  *   LAYOUT ONLY (no lyrics, no queue, no sleep-timer, no delete-song).
  *
- * Layout (top → bottom):
+ * Layout (BitChord-style Column flow, top → bottom):
  *   1. Opaque black base (fades together with whole player during drag-down).
  *   2. 96dp blurred album art fills entire screen as background.
- *   3. Sharp full-bleed cover at top 65% — bottom edge dissolves into the
- *      blurred bg via a DstIn mask (no black gradient, no harsh line).
- *   4. Top header: chevron-down · NOW PLAYING · ellipsis (3-dot menu).
- *   5. Song title + 3-dot menu icon (LEFT-aligned, sitting at the blend point
- *      where the cover dissolves into the blur).
- *   6. Artist name below the title.
- *   7. Bottom panel (consistentNavBarPadding ≥48dp):
- *        - Seek bar (drag-to-scrub, thickens from 4dp → 10dp on hold).
- *        - Time labels: current / remaining.
- *        - Triple-circle transport pod: Prev (translucent dark) · Play/Pause
- *          (solid white, slightly larger) · Next (translucent dark).
+ *   3. Column flow:
+ *        a. Top header (chevron-down · NOW PLAYING · ellipsis) — fixed ~56dp
+ *        b. Sharp cover Box — weight(1f), takes ALL remaining vertical space.
+ *           On a tall phone: cover is large.
+ *           On a small floating window: cover SHRINKS so the title + seek bar
+ *           + transport fit below WITHOUT overlapping (fixes ViVi/Coral bug).
+ *           Bottom edge dissolves into the blurred bg via a DstIn mask.
+ *        c. Song title + 3-dot menu icon (LEFT-aligned, flows below cover)
+ *        d. Artist name
+ *        e. Seek bar (drag-to-scrub, thickens 4dp → 10dp on hold)
+ *        f. Time labels: current / remaining
+ *        g. Triple-circle transport pod: Prev · Play/Pause · Next
  *
- * Universal fitting:
- *   - BoxWithConstraints + maxHeight * 0.65f (NO screenHeightDp fraction).
- *   - statusBarsPadding for top header.
- *   - consistentNavBarPadding (≥48dp) for bottom panel.
- *   - graphicsLayer translation/alpha for drag-down-to-dismiss.
+ * Universal fitting (BitChord approach):
+ *   - Column flow with weight(1f) on the cover (NO absolute offset positioning)
+ *   - statusBarsPadding for top header
+ *   - navigationBarsPadding for bottom (real system inset, NOT forced ≥48dp
+ *     which would be huge on a floating window)
+ *   - graphicsLayer translation/alpha for drag-down-to-dismiss
  *
  * Reads everything from PlaybackConnection — no params needed except onDismiss.
  *
@@ -204,9 +202,24 @@ fun Spiral2Player(
     }
 
     // ═════════════════════════════════════════════════════════════════
-    // ROOT — BoxWithConstraints (universal fitting rule #7)
+    // ROOT — Box (holds blurred bg + Column flow) + drag-dismiss
+    //
+    // ★ BITCHORD APPROACH (fixes floating-window overlap):
+    //   The whole player is a Column flowing top→bottom:
+    //     1. Blurred bg fills entire Box (absolute, behind everything)
+    //     2. Column {
+    //          Top header (fixed ~56dp)
+    //          Cover Box (weight 1f — takes ALL remaining space)
+    //          Title + artist (fixed, flows below cover)
+    //          Seek bar + time labels (fixed)
+    //          Transport row (fixed)
+    //          Bottom padding (navigationBarsPadding)
+    //        }
+    //   The cover SHRINKS on small screens (floating window) so the title
+    //   and seek bar NEVER overlap. On a full-screen phone, the cover is
+    //   large (like the old 65% fraction). No absolute offset positioning.
     // ═════════════════════════════════════════════════════════════════
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             // Whole player translates + fades during drag-down.
@@ -259,10 +272,8 @@ fun Spiral2Player(
                 )
             }
     ) {
-        val screenHeightDp = maxHeight  // BoxWithConstraints scope — universal fitting
-
         // ═════════════════════════════════════════════════════════════════
-        // (1) BLURRED BACKGROUND — 96dp blur fills entire screen
+        // (1) BLURRED BACKGROUND — 96dp blur fills entire screen (absolute)
         // ═════════════════════════════════════════════════════════════════
         if (artUri != null) {
             AsyncImage(
@@ -276,52 +287,7 @@ fun Spiral2Player(
         }
 
         // ═════════════════════════════════════════════════════════════════
-        // (2) SHARP COVER (top 65%) — bottom edge dissolves into blur via DstIn
-        // ═════════════════════════════════════════════════════════════════
-        if (artUri != null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.65f)
-                    .align(Alignment.TopCenter)
-                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        drawContent()
-                        // Bottom fade: opaque → transparent over 140dp.
-                        // NO black gradient — just a DstIn mask so the sharp
-                        // cover dissolves into the blurred bg behind it.
-                        val fadeHeightPx = 140.dp.toPx()
-                        val startY = (size.height - fadeHeightPx).coerceAtLeast(0f)
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color.Black, Color.Transparent),
-                                startY = startY,
-                                endY = size.height
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
-                    .pointerInput(artUri) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                // Double-tap = visual heart pop (favorites store TBD)
-                                showHeartPop = true
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            }
-                        )
-                    }
-            ) {
-                AsyncImage(
-                    model = artUri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-
-        // ═════════════════════════════════════════════════════════════════
-        // (3) HEART POP OVERLAY (double-tap to favorite — visual only)
+        // (2) HEART POP OVERLAY (double-tap to favorite — visual only)
         // ═════════════════════════════════════════════════════════════════
         if (showHeartPop) {
             Box(
@@ -344,284 +310,326 @@ fun Spiral2Player(
         }
 
         // ═════════════════════════════════════════════════════════════════
-        // (4) TOP HEADER — chevron-down · NOW PLAYING · ellipsis
-        // ═════════════════════════════════════════════════════════════════
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Back button — translucent dark capsule
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = ripple(bounded = false)
-                    ) { onDismiss() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = CoralXIcons.ChevronDown,
-                    contentDescription = "Back",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-            // NOW PLAYING label — centered, letter-spaced uppercase
-            Text(
-                text = "NOW PLAYING",
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 11.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 2.sp,
-                style = TextStyle(shadow = textShadow)
-            )
-            // More button (3-dot) — placeholder, no popup yet
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = ripple(bounded = false)
-                    ) { /* TBD: more menu capsule */ },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = CoralXIcons.Ellipsis,
-                    contentDescription = "More",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        // ═════════════════════════════════════════════════════════════════
-        // (5) SONG TITLE + 3-DOT MENU (LEFT-aligned, at the blend point)
+        // (3) COLUMN FLOW — top → bottom (BitChord approach)
         // ═════════════════════════════════════════════════════════════════
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                // ★ Sit at the blend point — the title floats right where the
-                //   sharp cover dissolves into the blurred bg.
-                .offset {
-                    IntOffset(
-                        x = 0,
-                        y = (screenHeightDp * 0.65f).toPx().toInt()
-                    )
-                }
-                .padding(horizontal = 28.dp)
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            // Title row — title takes available space, menu icon hugs the end
+            // ── (a) TOP HEADER — chevron-down · NOW PLAYING · ellipsis ──
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = song?.title ?: "No song",
-                    color = Color.White,
-                    fontSize = 26.sp,
-                    fontFamily = CalSansFamily,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Start,
-                    style = TextStyle(shadow = textShadow),
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                // 3-dot menu icon — placeholder for now (no popup yet)
-                Icon(
-                    imageVector = CoralXIcons.Ellipsis,
-                    contentDescription = "Menu",
-                    tint = Color.White,
+                // Back button — translucent dark capsule
+                Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.35f))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = ripple(bounded = false)
-                        ) { /* TBD: open menu capsule with shuffle / loop */ }
+                        ) { onDismiss() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = CoralXIcons.ChevronDown,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                // NOW PLAYING label — centered, letter-spaced uppercase
+                Text(
+                    text = "NOW PLAYING",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 2.sp,
+                    style = TextStyle(shadow = textShadow)
                 )
+                // More button (3-dot) — placeholder, no popup yet
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(bounded = false)
+                        ) { /* TBD: more menu capsule */ },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = CoralXIcons.Ellipsis,
+                        contentDescription = "More",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(2.dp))
-            // Artist name (60% white, smaller shadow)
-            Text(
-                text = song?.artist ?: "",
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 15.sp,
-                fontFamily = CalSansFamily,
-                fontWeight = FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Start,
-                style = TextStyle(shadow = artistShadow),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
 
-        // ═════════════════════════════════════════════════════════════════
-        // (6) BOTTOM PANEL — seek bar + time labels + transport pod
-        // ═════════════════════════════════════════════════════════════════
-        var seekbarWidthPx by remember { mutableFloatStateOf(1f) }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .consistentNavBarPadding()  // ≥48dp bottom (universal fitting)
-                .padding(horizontal = 28.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            // ── Seek bar (drag-to-scrub, thickens on hold, no thumb) ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(24.dp)  // touch target — track is thinner inside
-                    .onSizeChanged { seekbarWidthPx = it.width.toFloat() }
-                    .pointerInput(durationMs) {
-                        detectDragGestures(
-                            onDragStart = { isDragging = true },
-                            onDragEnd = {
-                                isDragging = false
-                                dragFraction?.let { frac ->
-                                    if (durationMs > 0) playback.seekTo((frac * durationMs).toLong())
-                                }
-                                dragFraction = null
-                            },
-                            onDragCancel = { isDragging = false; dragFraction = null },
-                            onDrag = { change, _ ->
-                                if (durationMs > 0 && seekbarWidthPx > 0) {
-                                    val frac = (change.position.x / seekbarWidthPx).coerceIn(0f, 1f)
-                                    dragFraction = frac
-                                }
-                            }
-                        )
-                    }
-            ) {
-                // Track (dim white)
+            // ── (b) COVER — weight(1f), takes ALL remaining vertical space ──
+            //   On a tall phone: cover is large (like the old 65% fraction).
+            //   On a floating window: cover shrinks so the title + seek bar
+            //   + transport fit below without overlapping.
+            if (artUri != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(trackHeight)
-                        .clip(RoundedCornerShape(trackHeight / 2))
-                        .align(Alignment.CenterStart)
-                        .background(Color.White.copy(alpha = 0.2f))
-                )
-                // Progress (bright white)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(displayProgress)
-                        .height(trackHeight)
-                        .clip(RoundedCornerShape(trackHeight / 2))
-                        .align(Alignment.CenterStart)
-                        .background(Color.White)
+                        .weight(1f)
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            drawContent()
+                            // Bottom fade: opaque → transparent over 140dp.
+                            // NO black gradient — just a DstIn mask so the sharp
+                            // cover dissolves into the blurred bg behind it.
+                            val fadeHeightPx = 140.dp.toPx()
+                            val startY = (size.height - fadeHeightPx).coerceAtLeast(0f)
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Black, Color.Transparent),
+                                    startY = startY,
+                                    endY = size.height
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                        .pointerInput(artUri) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    // Double-tap = visual heart pop (favorites store TBD)
+                                    showHeartPop = true
+                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                }
+                            )
+                        }
+                ) {
+                    AsyncImage(
+                        model = artUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else {
+                // No album art — spacer keeps the layout flow correct
+                Spacer(modifier = Modifier.weight(1f))
+            }
+
+            // ── (c) SONG TITLE + 3-DOT MENU — flows below cover ──
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp)
+                    .padding(top = 8.dp, bottom = 12.dp)
+            ) {
+                // Title row — title takes available space, menu icon hugs the end
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = song?.title ?: "No song",
+                        color = Color.White,
+                        fontSize = 26.sp,
+                        fontFamily = CalSansFamily,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Start,
+                        style = TextStyle(shadow = textShadow),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    // 3-dot menu icon — placeholder for now (no popup yet)
+                    Icon(
+                        imageVector = CoralXIcons.Ellipsis,
+                        contentDescription = "Menu",
+                        tint = Color.White,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false)
+                            ) { /* TBD: open menu capsule with shuffle / loop */ }
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                // Artist name (60% white, smaller shadow)
+                Text(
+                    text = song?.artist ?: "",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 15.sp,
+                    fontFamily = CalSansFamily,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                    style = TextStyle(shadow = artistShadow),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            // ── Time labels (current left, remaining right) ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            // ── (d) BOTTOM PANEL — seek bar + time labels + transport pod ──
+            // Flows naturally below the title block. No absolute BottomCenter
+            // alignment — uses Column flow with Spacers.
+            var seekbarWidthPx by remember { mutableFloatStateOf(1f) }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp)
+                    .padding(bottom = 24.dp)
             ) {
-                Text(
-                    text = formatTime((displayProgress * durationMs).toLong()),
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 11.sp,
-                    fontFamily = CalSansFamily
-                )
-                Text(
-                    text = "-" + formatTime(((1f - displayProgress) * durationMs).toLong()),
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 11.sp,
-                    fontFamily = CalSansFamily
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ── Triple-circle transport pod (Prev · Play/Pause · Next) ──
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Previous — translucent dark circle (glass-like)
+                // ── Seek bar (drag-to-scrub, thickens on hold, no thumb) ──
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = false)
-                        ) {
-                            playback.prev()
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        },
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .height(24.dp)  // touch target — track is thinner inside
+                        .onSizeChanged { seekbarWidthPx = it.width.toFloat() }
+                        .pointerInput(durationMs) {
+                            detectDragGestures(
+                                onDragStart = { isDragging = true },
+                                onDragEnd = {
+                                    isDragging = false
+                                    dragFraction?.let { frac ->
+                                        if (durationMs > 0) playback.seekTo((frac * durationMs).toLong())
+                                    }
+                                    dragFraction = null
+                                },
+                                onDragCancel = { isDragging = false; dragFraction = null },
+                                onDrag = { change, _ ->
+                                    if (durationMs > 0 && seekbarWidthPx > 0) {
+                                        val frac = (change.position.x / seekbarWidthPx).coerceIn(0f, 1f)
+                                        dragFraction = frac
+                                    }
+                                }
+                            )
+                        }
                 ) {
-                    Icon(
-                        imageVector = CoralXIcons.Rewind,
-                        contentDescription = "Previous",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
+                    // Track (dim white)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(trackHeight)
+                            .clip(RoundedCornerShape(trackHeight / 2))
+                            .align(Alignment.CenterStart)
+                            .background(Color.White.copy(alpha = 0.2f))
+                    )
+                    // Progress (bright white)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(displayProgress)
+                            .height(trackHeight)
+                            .clip(RoundedCornerShape(trackHeight / 2))
+                            .align(Alignment.CenterStart)
+                            .background(Color.White)
                     )
                 }
-                Spacer(modifier = Modifier.width(16.dp))
-                // Play/Pause — solid white, slightly larger, center
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = false)
-                        ) {
-                            playback.playPause()
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        },
-                    contentAlignment = Alignment.Center
+
+                // ── Time labels (current left, remaining right) ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) CoralXIcons.PauseLucide else CoralXIcons.PlayLucide,
-                        contentDescription = "Play/Pause",
-                        tint = Color.Black,
-                        modifier = Modifier.size(28.dp)
+                    Text(
+                        text = formatTime((displayProgress * durationMs).toLong()),
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontFamily = CalSansFamily
+                    )
+                    Text(
+                        text = "-" + formatTime(((1f - displayProgress) * durationMs).toLong()),
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontFamily = CalSansFamily
                     )
                 }
-                Spacer(modifier = Modifier.width(16.dp))
-                // Next — translucent dark circle (glass-like)
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(bounded = false)
-                        ) {
-                            playback.next()
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        },
-                    contentAlignment = Alignment.Center
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // ── Triple-circle transport pod (Prev · Play/Pause · Next) ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = CoralXIcons.FastForward,
-                        contentDescription = "Next",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
+                    // Previous — translucent dark circle (glass-like)
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false)
+                            ) {
+                                playback.prev()
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralXIcons.Rewind,
+                            contentDescription = "Previous",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    // Play/Pause — solid white, slightly larger, center
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false)
+                            ) {
+                                playback.playPause()
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) CoralXIcons.PauseLucide else CoralXIcons.PlayLucide,
+                            contentDescription = "Play/Pause",
+                            tint = Color.Black,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    // Next — translucent dark circle (glass-like)
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false)
+                            ) {
+                                playback.next()
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = CoralXIcons.FastForward,
+                            contentDescription = "Next",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
             }
         }
