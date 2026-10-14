@@ -829,7 +829,7 @@ private fun AccompanistLyricsContent(
     val syncedLyrics: com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics =
         remember(rawText) {
             try {
-                com.mocharealm.accompanist.lyrics.core.parser.AutoParser.Builder().build()
+                com.mocharealm.accompanist.lyrics.core.parser.AutoParser()
                     .parse(rawText)
             } catch (_: Exception) {
                 com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics(emptyList())
